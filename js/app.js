@@ -2,10 +2,12 @@
   "use strict";
 
   var STORAGE_KEY = "sbux_qc_data_v1";
+  var LAST_EVALUATOR_KEY = "sbux_qc_last_evaluator";
   var LIMITS = { employees: 20, drinks: 20, questions: 20 };
+  var PHOTO_SIZE = 200;
 
   var DB = null;
-  var evalState = { step: 1, employeeId: null, drinkId: null, answers: {} };
+  var evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: "", answers: {} };
   var histFilters = { empId: "", drinkId: "" };
   var toastTimer = null;
 
@@ -75,6 +77,44 @@
       ? '<div style="margin-top:12px;"><button class="btn btn-primary" data-action="nav:' + view + '">Ir a agregar</button></div>'
       : "";
     return '<div class="empty-state"><span class="big-emoji">' + icon + "</span>" + esc(msg) + btn + "</div>";
+  }
+
+  function getInitials(name) {
+    var parts = String(name || "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    var initials = parts.map(function (w) { return w[0]; }).join("").toUpperCase();
+    return initials || "?";
+  }
+
+  function avatarHtml(person, size) {
+    size = size || 36;
+    if (person && person.photo) {
+      return '<img class="avatar" src="' + person.photo + '" style="width:' + size + 'px;height:' + size + 'px;" alt="">';
+    }
+    var fontSize = Math.round(size * 0.4);
+    return '<div class="avatar avatar-fallback" style="width:' + size + 'px;height:' + size + 'px;font-size:' + fontSize + 'px;">' +
+      esc(getInitials(person ? person.name : "")) + "</div>";
+  }
+
+  function resizeImageFile(file, maxSize, callback) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var side = Math.min(img.width, img.height);
+        var sx = (img.width - side) / 2;
+        var sy = (img.height - side) / 2;
+        var canvas = document.createElement("canvas");
+        canvas.width = maxSize;
+        canvas.height = maxSize;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+        callback(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = function () { toast("No se pudo leer la imagen"); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function () { toast("No se pudo leer la imagen"); };
+    reader.readAsDataURL(file);
   }
 
   function downloadBlob(content, filename, type) {
@@ -169,6 +209,7 @@
   function spotHtml(item, cls, medal) {
     return '<div class="spot ' + cls + '">' +
       '<div class="medal">' + medal + "</div>" +
+      avatarHtml(item.emp, 44) +
       '<div class="p-name">' + esc(item.emp.name) + "</div>" +
       '<div class="p-score">' + (item.avg == null ? "—" : item.avg + "%") + "</div>" +
       "</div>";
@@ -200,6 +241,7 @@
       }
       return '<div class="rank-row">' +
         '<div class="rank-pos">' + (idx + 1) + "</div>" +
+        avatarHtml(item.emp, 38) +
         '<div class="rank-info">' +
         '<div class="name">' + esc(item.emp.name) + "</div>" +
         '<div class="role">' + esc(item.emp.role || "Sin puesto") + " · " + item.count + " evaluación(es)</div>" +
@@ -227,6 +269,7 @@
       var evals = DB.evaluations.filter(function (e) { return e.employeeId === emp.id && e.score != null; });
       var avg = evals.length ? Math.round(evals.reduce(function (s, e) { return s + e.score; }, 0) / evals.length) : null;
       return '<div class="list-row">' +
+        avatarHtml(emp, 40) +
         '<div class="info">' +
         '<div class="name">' + esc(emp.name) + "</div>" +
         '<div class="meta">' + esc(emp.role || "Sin puesto") + " · " + evals.length + " evaluación(es)" +
@@ -242,9 +285,22 @@
 
   function openEmpleadoForm(id) {
     var emp = id ? DB.employees.find(function (x) { return x.id === id; }) : null;
+    var hasPhoto = !!(emp && emp.photo);
     openModal(
       '<div class="modal-header"><h2>' + (emp ? "Editar" : "Agregar") + ' empleado</h2><button type="button" class="modal-close" data-action="close-modal">✕</button></div>' +
       '<form id="form-empleado" data-id="' + (emp ? emp.id : "") + '">' +
+      '<div class="field">' +
+      '<label>Foto (opcional)</label>' +
+      '<div class="photo-field">' +
+      '<div class="photo-preview" id="photo-preview">' + (hasPhoto ? '<img src="' + emp.photo + '" alt="">' : "📷") + "</div>" +
+      '<div class="photo-actions">' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-action="pick-photo">Elegir foto</button>' +
+      '<button type="button" class="btn btn-danger btn-sm" id="remove-photo-btn" data-action="remove-photo" style="' + (hasPhoto ? "" : "display:none;") + '">Quitar foto</button>' +
+      "</div>" +
+      '<input type="file" accept="image/*" id="photo-input" style="display:none;">' +
+      "</div>" +
+      '<input type="hidden" name="photo" id="photo-data-hidden" value="' + (hasPhoto ? esc(emp.photo) : "") + '">' +
+      "</div>" +
       '<div class="field"><label>Nombre completo</label><input type="text" name="name" required maxlength="60" value="' + esc(emp ? emp.name : "") + '" placeholder="Ej. Juan Pérez"></div>' +
       '<div class="field"><label>Puesto / Ocupación</label><input type="text" name="role" maxlength="60" value="' + esc(emp ? emp.role : "") + '" placeholder="Ej. Barista"></div>' +
       '<button type="submit" class="btn btn-primary btn-block">Guardar</button>' +
@@ -258,13 +314,14 @@
     var id = form.dataset.id;
     var name = form.name.value.trim();
     var role = form.role.value.trim();
+    var photo = form.photo.value || null;
     if (!name) { toast("El nombre es obligatorio"); return; }
     if (id) {
       var emp = DB.employees.find(function (x) { return x.id === id; });
-      if (emp) { emp.name = name; emp.role = role; }
+      if (emp) { emp.name = name; emp.role = role; emp.photo = photo; }
     } else {
       if (DB.employees.length >= LIMITS.employees) { toast("Límite de 20 empleados alcanzado"); return; }
-      DB.employees.push({ id: uid("emp"), name: name, role: role, createdAt: Date.now() });
+      DB.employees.push({ id: uid("emp"), name: name, role: role, photo: photo, createdAt: Date.now() });
     }
     saveDB(); closeModal(); renderAll(); toast("Empleado guardado");
   }
@@ -400,8 +457,15 @@
   /* ---------- evaluar (wizard) ---------- */
 
   function evalRestart() {
-    evalState = { step: 1, employeeId: null, drinkId: null, answers: {} };
+    var lastEvaluator = "";
+    try { lastEvaluator = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
+    evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: lastEvaluator, answers: {} };
     renderEvaluar();
+  }
+
+  function evalSetEvaluator(name) {
+    evalState.evaluatorName = name;
+    try { localStorage.setItem(LAST_EVALUATOR_KEY, name); } catch (err) {}
   }
 
   function evalPickEmployee(id) {
@@ -434,6 +498,13 @@
     var emp = DB.employees.find(function (e) { return e.id === evalState.employeeId; });
     var drink = DB.drinks.find(function (d) { return d.id === evalState.drinkId; });
     if (!emp || !drink) { toast("Selecciona empleado y bebida"); return; }
+    var evaluatorName = (evalState.evaluatorName || "").trim();
+    if (!evaluatorName) {
+      toast("Escribe el nombre de quien realiza la evaluación");
+      evalState.step = 1;
+      renderEvaluar();
+      return;
+    }
     var answers = DB.questions.map(function (q) {
       var a = evalState.answers[q.id];
       if (q.type === "yn") {
@@ -448,8 +519,9 @@
     var score = computeScore(answers);
     var newEval = {
       id: uid("ev"),
-      employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role,
+      employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
       drinkId: drink.id, drinkName: drink.name,
+      evaluatorName: evaluatorName,
       answers: answers, score: score,
       createdAt: Date.now()
     };
@@ -468,9 +540,11 @@
     var cmpSame = (prevSame && (!prevAny || prevSame.id !== prevAny.id)) ? compareLine(ev, prevSame) : null;
     var scoreDisplay = ev.score == null ? "N/A" : ev.score + "%";
     var html = '<div class="score-hero">' +
+      '<div class="hero-avatar-wrap">' + avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 56) + "</div>" +
       '<div class="score-num">' + scoreDisplay + "</div>" +
       '<div class="score-label">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
       '<div class="score-label">' + formatDateTime(ev.createdAt) + "</div>" +
+      '<div class="score-label">Evaluó: ' + esc(ev.evaluatorName || "—") + "</div>" +
       (cmpAny
         ? '<div class="compare ' + cmpAny.cls + '">' + cmpAny.text + "</div>"
         : '<div class="compare">Primera evaluación registrada para este empleado</div>') +
@@ -509,12 +583,19 @@
       return '<div class="step ' + (evalState.step >= n ? "done" : "") + '"></div>';
     }).join("") + "</div>";
 
+    var evaluatorHtml = '<div class="field">' +
+      '<label>¿Quién realiza la evaluación?</label>' +
+      '<input type="text" data-role="evaluator-input" maxlength="60" value="' + esc(evalState.evaluatorName || "") + '" placeholder="Tu nombre">' +
+      "</div>";
+
     if (evalState.step === 1) {
       c.innerHTML = stepperHtml +
+        evaluatorHtml +
         '<div class="progress-summary">Paso 1 de 3 · Selecciona al empleado</div>' +
         '<div class="chip-select">' +
         DB.employees.map(function (e) {
-          return '<div class="chip' + (evalState.employeeId === e.id ? " selected" : "") + '" data-action="eval-pick-employee:' + e.id + '">' + esc(e.name) + "</div>";
+          return '<div class="chip chip-with-avatar' + (evalState.employeeId === e.id ? " selected" : "") + '" data-action="eval-pick-employee:' + e.id + '">' +
+            avatarHtml(e, 22) + "<span>" + esc(e.name) + "</span></div>";
         }).join("") +
         "</div>";
       return;
@@ -595,9 +676,10 @@
     c.innerHTML = list.map(function (ev) {
       var scoreDisplay = ev.score == null ? "N/A" : ev.score + "%";
       return '<div class="list-row" data-action="hist-open:' + ev.id + '" style="cursor:pointer;">' +
+        avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 40) +
         '<div class="info">' +
         '<div class="name">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
-        '<div class="meta">' + formatDateTime(ev.createdAt) + "</div>" +
+        '<div class="meta">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
         "</div>" +
         '<div class="row-actions">' +
         '<div class="val" style="font-weight:800;color:var(--green);margin-right:2px;">' + scoreDisplay + "</div>" +
@@ -636,14 +718,14 @@
   }
 
   function exportCSV() {
-    var rows = [["Fecha", "Empleado", "Puesto", "Bebida", "Puntaje (%)", "Detalle de respuestas"]];
+    var rows = [["Fecha", "Empleado", "Puesto", "Bebida", "Evaluó", "Puntaje (%)", "Detalle de respuestas"]];
     DB.evaluations.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).forEach(function (ev) {
       var detail = ev.answers.map(function (a) {
         return a.text + ": " + (a.type === "yn" ? (a.value ? "Sí" : "No") : (a.value || ""));
       }).join(" | ");
       rows.push([
-        formatDateTime(ev.createdAt), ev.employeeName, ev.employeeRole || "",
-        ev.drinkName, ev.score == null ? "" : String(ev.score), detail
+        formatDateTime(ev.createdAt), ev.employeeName, ev.employeeRole || "", ev.drinkName,
+        ev.evaluatorName || "", ev.score == null ? "" : String(ev.score), detail
       ]);
     });
     var csv = "﻿" + rows.map(function (r) { return r.map(csvEscape).join(","); }).join("\r\n");
@@ -696,7 +778,7 @@
       { id: uid("q"), text: "¿Qué podría mejorar?", type: "open", createdAt: now }
     ];
 
-    function makeEval(emp, drink, daysAgo, yesCount) {
+    function makeEval(emp, drink, daysAgo, yesCount, evaluatorName) {
       var answers = questions.map(function (q, idx) {
         if (q.type === "yn") {
           return { questionId: q.id, text: q.text, type: "yn", value: idx < yesCount };
@@ -704,21 +786,22 @@
         return { questionId: q.id, text: q.text, type: "open", value: idx === 4 ? "Buen desempeño general." : "" };
       });
       return {
-        id: uid("ev"), employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role,
-        drinkId: drink.id, drinkName: drink.name, answers: answers, score: computeScore(answers),
+        id: uid("ev"), employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
+        drinkId: drink.id, drinkName: drink.name, evaluatorName: evaluatorName,
+        answers: answers, score: computeScore(answers),
         createdAt: now - daysAgo * day
       };
     }
 
     var evaluations = [
-      makeEval(employees[0], drinks[0], 10, 3),
-      makeEval(employees[0], drinks[1], 3, 4),
-      makeEval(employees[1], drinks[1], 9, 2),
-      makeEval(employees[1], drinks[2], 2, 3),
-      makeEval(employees[2], drinks[0], 8, 4),
-      makeEval(employees[2], drinks[2], 1, 4),
-      makeEval(employees[3], drinks[1], 7, 2),
-      makeEval(employees[3], drinks[0], 1, 3)
+      makeEval(employees[0], drinks[0], 10, 3, "Carlos Mendoza"),
+      makeEval(employees[0], drinks[1], 3, 4, "Carlos Mendoza"),
+      makeEval(employees[1], drinks[1], 9, 2, "Sofía Guzmán"),
+      makeEval(employees[1], drinks[2], 2, 3, "Carlos Mendoza"),
+      makeEval(employees[2], drinks[0], 8, 4, "Sofía Guzmán"),
+      makeEval(employees[2], drinks[2], 1, 4, "Carlos Mendoza"),
+      makeEval(employees[3], drinks[1], 7, 2, "Sofía Guzmán"),
+      makeEval(employees[3], drinks[0], 1, 3, "Sofía Guzmán")
     ];
 
     return { employees: employees, drinks: drinks, questions: questions, evaluations: evaluations };
@@ -761,6 +844,20 @@
       case "add-empleado": openEmpleadoForm(); break;
       case "edit-empleado": openEmpleadoForm(a1); break;
       case "delete-empleado": deleteEmpleado(a1); break;
+      case "pick-photo": {
+        var photoInput = document.getElementById("photo-input");
+        if (photoInput) photoInput.click();
+        break;
+      }
+      case "remove-photo": {
+        var hidden = document.getElementById("photo-data-hidden");
+        var preview = document.getElementById("photo-preview");
+        var removeBtn = document.getElementById("remove-photo-btn");
+        if (hidden) hidden.value = "";
+        if (preview) preview.innerHTML = "📷";
+        if (removeBtn) removeBtn.style.display = "none";
+        break;
+      }
       case "add-bebida": openBebidaForm(); break;
       case "edit-bebida": openBebidaForm(a1); break;
       case "delete-bebida": deleteBebida(a1); break;
@@ -793,11 +890,27 @@
     if (e.target.id === "hist-filter-emp") { histFilters.empId = e.target.value; renderHistorial(); }
     else if (e.target.id === "hist-filter-drink") { histFilters.drinkId = e.target.value; renderHistorial(); }
     else if (e.target.id === "import-file-input") { handleImportFile(e.target.files[0]); e.target.value = ""; }
+    else if (e.target.id === "photo-input") {
+      var file = e.target.files[0];
+      if (!file) return;
+      if (!file.type || file.type.indexOf("image/") !== 0) { toast("Selecciona un archivo de imagen"); return; }
+      resizeImageFile(file, PHOTO_SIZE, function (dataUrl) {
+        var hidden = document.getElementById("photo-data-hidden");
+        var preview = document.getElementById("photo-preview");
+        var removeBtn = document.getElementById("remove-photo-btn");
+        if (hidden) hidden.value = dataUrl;
+        if (preview) preview.innerHTML = '<img src="' + dataUrl + '" alt="">';
+        if (removeBtn) removeBtn.style.display = "";
+      });
+    }
   }
 
   function handleGlobalInput(e) {
-    if (e.target.dataset && e.target.dataset.role === "open-answer") {
+    if (!e.target.dataset) return;
+    if (e.target.dataset.role === "open-answer") {
       evalOpenInput(e.target.dataset.qid, e.target.value);
+    } else if (e.target.dataset.role === "evaluator-input") {
+      evalSetEvaluator(e.target.value);
     }
   }
 
@@ -805,6 +918,7 @@
 
   function init() {
     DB = loadDB();
+    try { evalState.evaluatorName = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
 
     document.addEventListener("click", handleGlobalClick);
     document.addEventListener("submit", handleGlobalSubmit);
