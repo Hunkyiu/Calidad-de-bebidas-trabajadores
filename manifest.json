@@ -1,0 +1,19 @@
+{
+  "name": "Control de Calidad de Bebidas - Starbucks",
+  "short_name": "QC Bebidas",
+  "description": "App interna para evaluar la calidad de bebidas preparadas por baristas, con ranking y comparación entre sesiones.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B3D2E",
+  "theme_color": "#00704A",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

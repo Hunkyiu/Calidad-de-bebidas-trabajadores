@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#00704A"/>
+  <circle cx="256" cy="256" r="170" fill="#0B3D2E" stroke="#CBA258" stroke-width="10"/>
+  <text x="256" y="245" font-family="Segoe UI, Arial, sans-serif" font-size="150" font-weight="700" fill="#ffffff" text-anchor="middle">QC</text>
+  <text x="256" y="330" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="600" fill="#CBA258" text-anchor="middle">BEBIDAS</text>
+</svg>
