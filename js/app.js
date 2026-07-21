@@ -5,7 +5,7 @@
   var LAST_EVALUATOR_KEY = "sbux_qc_last_evaluator";
   var LIMITS = { employees: 20, drinks: 20, questions: 20 };
   var PHOTO_SIZE = 200;
-  var OWNER_FIRST_NAME = "José Emiliano";
+  var GREETING_NAME = "Partner";
 
   var DB = null;
   var evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: "", answers: {} };
@@ -165,6 +165,13 @@
 
   /* ---------- scoring / comparison ---------- */
 
+  function scoreColorClass(score) {
+    if (score == null) return "";
+    if (score >= 80) return "score-green";
+    if (score >= 60) return "score-yellow";
+    return "score-red";
+  }
+
   function computeScore(answers) {
     var yn = answers.filter(function (a) { return a.type === "yn"; });
     if (!yn.length) return null;
@@ -220,7 +227,7 @@
       '<div class="medal">' + medal + "</div>" +
       avatarHtml(item.emp, 44) +
       '<div class="p-name">' + esc(item.emp.name) + "</div>" +
-      '<div class="p-score">' + (item.avg == null ? "—" : item.avg + "%") + "</div>" +
+      '<div class="p-score ' + scoreColorClass(item.avg) + '">' + (item.avg == null ? "—" : item.avg + "%") + "</div>" +
       "</div>";
   }
 
@@ -258,7 +265,7 @@
         '<div class="role">' + esc(item.emp.role || "Sin puesto") + " · " + item.count + " evaluación(es)</div>" +
         "</div>" +
         '<div class="rank-score">' +
-        '<div class="val">' + (item.avg == null ? "—" : item.avg + "%") + "</div>" +
+        '<div class="val ' + scoreColorClass(item.avg) + '">' + (item.avg == null ? "—" : item.avg + "%") + "</div>" +
         trendHtml +
         "</div>" +
         "</div>";
@@ -552,7 +559,7 @@
     var scoreDisplay = ev.score == null ? "N/A" : ev.score + "%";
     var html = '<div class="score-hero">' +
       '<div class="hero-avatar-wrap">' + avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 56) + "</div>" +
-      '<div class="score-num">' + scoreDisplay + "</div>" +
+      '<div class="score-num ' + scoreColorClass(ev.score) + '">' + scoreDisplay + "</div>" +
       '<div class="score-label">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
       '<div class="score-label dim">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
       (cmpAny
@@ -692,7 +699,7 @@
         '<div class="meta">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
         "</div>" +
         '<div class="row-actions">' +
-        '<div class="val" style="font-weight:800;color:var(--green);margin-right:2px;">' + scoreDisplay + "</div>" +
+        '<div class="val ' + scoreColorClass(ev.score) + '" style="font-weight:800;margin-right:2px;">' + scoreDisplay + "</div>" +
         '<button class="icon-btn danger" data-action="hist-delete:' + ev.id + '" title="Eliminar" aria-label="Eliminar evaluación"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
@@ -931,7 +938,7 @@
     DB = loadDB();
     try { evalState.evaluatorName = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
 
-    var greetingText = "Hola, " + OWNER_FIRST_NAME;
+    var greetingText = "Hola " + GREETING_NAME;
     var splashGreetingEl = document.getElementById("splash-greeting");
     var headerGreetingEl = document.getElementById("header-greeting");
     if (splashGreetingEl) splashGreetingEl.innerHTML = esc(greetingText) + ' <span style="font-size:30px">☕</span>';

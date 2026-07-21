@@ -25,6 +25,7 @@
   --av-text: #d9e8dd;
 
   --success: #5cb98c;
+  --warning: #e0a72e;
   --danger: #d16a5a;
   --danger-bg: rgba(209, 106, 90, .1);
   --danger-border: rgba(209, 106, 90, .3);
@@ -416,6 +417,11 @@ main {
 .trend-up { color: var(--success); }
 .trend-down { color: var(--danger); }
 .trend-flat { color: var(--text-muted); }
+
+/* Score traffic-light colors: >=80 green, 60-79 yellow, <60 red */
+.score-green { color: var(--success) !important; }
+.score-yellow { color: var(--warning) !important; }
+.score-red { color: var(--danger) !important; }
 
 /* Score badge / result */
 .score-hero {
