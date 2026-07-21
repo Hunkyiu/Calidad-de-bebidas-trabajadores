@@ -5,6 +5,7 @@
   var LAST_EVALUATOR_KEY = "sbux_qc_last_evaluator";
   var LIMITS = { employees: 20, drinks: 20, questions: 20 };
   var PHOTO_SIZE = 200;
+  var OWNER_FIRST_NAME = "José Emiliano";
 
   var DB = null;
   var evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: "", answers: {} };
@@ -76,7 +77,7 @@
     var btn = view
       ? '<div style="margin-top:12px;"><button class="btn btn-primary" data-action="nav:' + view + '">Ir a agregar</button></div>'
       : "";
-    return '<div class="empty-state"><span class="big-emoji">' + icon + "</span>" + esc(msg) + btn + "</div>";
+    return '<div class="empty-state"><span class="msi" aria-hidden="true">' + icon + "</span>" + esc(msg) + btn + "</div>";
   }
 
   function getInitials(name) {
@@ -132,8 +133,11 @@
   /* ---------- modal ---------- */
 
   function openModal(html) {
-    document.getElementById("modal-sheet").innerHTML = html;
+    var sheet = document.getElementById("modal-sheet");
+    sheet.innerHTML = html;
     document.getElementById("modal-overlay").classList.add("active");
+    var focusable = sheet.querySelector("input, textarea, select, button:not(.modal-close)");
+    if (focusable) focusable.focus();
   }
 
   function closeModal() {
@@ -142,6 +146,11 @@
   }
 
   /* ---------- navigation ---------- */
+
+  function enterApp() {
+    document.getElementById("splash-screen").style.display = "none";
+    document.getElementById("app-shell").style.display = "flex";
+  }
 
   function showView(name) {
     document.querySelectorAll(".view").forEach(function (v) {
@@ -216,9 +225,11 @@
   }
 
   function renderRanking() {
+    var counterEl = document.getElementById("ranking-counter");
+    if (counterEl) counterEl.textContent = DB.evaluations.length + (DB.evaluations.length === 1 ? " evaluación" : " evaluaciones");
     var c = document.getElementById("ranking-content");
     if (!DB.employees.length) {
-      c.innerHTML = emptyStateHtml("🏆", "Agrega empleados para comenzar a construir el ranking.", "empleados");
+      c.innerHTML = emptyStateHtml("trophy", "Agrega empleados para comenzar a construir el ranking.", "empleados");
       return;
     }
     var ranking = computeRanking();
@@ -262,7 +273,7 @@
     document.getElementById("btn-add-empleado").disabled = DB.employees.length >= LIMITS.employees;
     var c = document.getElementById("empleados-content");
     if (!DB.employees.length) {
-      c.innerHTML = emptyStateHtml("👤", 'Aún no hay empleados registrados. Toca "+" para agregar el primero.', null);
+      c.innerHTML = emptyStateHtml("group", 'Aún no hay empleados registrados. Toca "+" para agregar el primero.', null);
       return;
     }
     c.innerHTML = DB.employees.map(function (emp) {
@@ -276,8 +287,8 @@
         (avg != null ? " · Prom. " + avg + "%" : "") + "</div>" +
         "</div>" +
         '<div class="row-actions">' +
-        '<button class="icon-btn" data-action="edit-empleado:' + emp.id + '" title="Editar">✏️</button>' +
-        '<button class="icon-btn danger" data-action="delete-empleado:' + emp.id + '" title="Eliminar">🗑️</button>' +
+        '<button class="icon-btn" data-action="edit-empleado:' + emp.id + '" title="Editar" aria-label="Editar ' + esc(emp.name) + '"><span class="msi" aria-hidden="true">edit</span></button>' +
+        '<button class="icon-btn danger" data-action="delete-empleado:' + emp.id + '" title="Eliminar" aria-label="Eliminar ' + esc(emp.name) + '"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
     }).join("");
@@ -287,12 +298,12 @@
     var emp = id ? DB.employees.find(function (x) { return x.id === id; }) : null;
     var hasPhoto = !!(emp && emp.photo);
     openModal(
-      '<div class="modal-header"><h2>' + (emp ? "Editar" : "Agregar") + ' empleado</h2><button type="button" class="modal-close" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-header"><h2>' + (emp ? "Editar" : "Agregar") + ' empleado</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
       '<form id="form-empleado" data-id="' + (emp ? emp.id : "") + '">' +
       '<div class="field">' +
       '<label>Foto (opcional)</label>' +
       '<div class="photo-field">' +
-      '<div class="photo-preview" id="photo-preview">' + (hasPhoto ? '<img src="' + emp.photo + '" alt="">' : "📷") + "</div>" +
+      '<div class="photo-preview" id="photo-preview">' + (hasPhoto ? '<img src="' + emp.photo + '" alt="">' : '<span class="msi" aria-hidden="true">photo_camera</span>') + "</div>" +
       '<div class="photo-actions">' +
       '<button type="button" class="btn btn-secondary btn-sm" data-action="pick-photo">Elegir foto</button>' +
       '<button type="button" class="btn btn-danger btn-sm" id="remove-photo-btn" data-action="remove-photo" style="' + (hasPhoto ? "" : "display:none;") + '">Quitar foto</button>' +
@@ -339,7 +350,7 @@
     document.getElementById("btn-add-bebida").disabled = DB.drinks.length >= LIMITS.drinks;
     var c = document.getElementById("bebidas-content");
     if (!DB.drinks.length) {
-      c.innerHTML = emptyStateHtml("🥤", 'Aún no hay bebidas registradas. Toca "+" para agregar la primera.', null);
+      c.innerHTML = emptyStateHtml("local_cafe", 'Aún no hay bebidas registradas. Toca "+" para agregar la primera.', null);
       return;
     }
     c.innerHTML = DB.drinks.map(function (drink) {
@@ -350,8 +361,8 @@
         '<div class="meta">' + count + " evaluación(es) registradas</div>" +
         "</div>" +
         '<div class="row-actions">' +
-        '<button class="icon-btn" data-action="edit-bebida:' + drink.id + '" title="Editar">✏️</button>' +
-        '<button class="icon-btn danger" data-action="delete-bebida:' + drink.id + '" title="Eliminar">🗑️</button>' +
+        '<button class="icon-btn" data-action="edit-bebida:' + drink.id + '" title="Editar" aria-label="Editar ' + esc(drink.name) + '"><span class="msi" aria-hidden="true">edit</span></button>' +
+        '<button class="icon-btn danger" data-action="delete-bebida:' + drink.id + '" title="Eliminar" aria-label="Eliminar ' + esc(drink.name) + '"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
     }).join("");
@@ -360,7 +371,7 @@
   function openBebidaForm(id) {
     var drink = id ? DB.drinks.find(function (x) { return x.id === id; }) : null;
     openModal(
-      '<div class="modal-header"><h2>' + (drink ? "Editar" : "Agregar") + ' bebida</h2><button type="button" class="modal-close" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-header"><h2>' + (drink ? "Editar" : "Agregar") + ' bebida</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
       '<form id="form-bebida" data-id="' + (drink ? drink.id : "") + '">' +
       '<div class="field"><label>Nombre de la bebida</label><input type="text" name="name" required maxlength="60" value="' + esc(drink ? drink.name : "") + '" placeholder="Ej. Frapuccino de Caramelo"></div>' +
       '<button type="submit" class="btn btn-primary btn-block">Guardar</button>' +
@@ -397,7 +408,7 @@
     document.getElementById("btn-add-pregunta").disabled = DB.questions.length >= LIMITS.questions;
     var c = document.getElementById("preguntas-content");
     if (!DB.questions.length) {
-      c.innerHTML = emptyStateHtml("📋", 'Aún no hay preguntas registradas. Toca "+" para agregar la primera.', null);
+      c.innerHTML = emptyStateHtml("checklist", 'Aún no hay preguntas registradas. Toca "+" para agregar la primera.', null);
       return;
     }
     c.innerHTML = DB.questions.map(function (q) {
@@ -407,8 +418,8 @@
         '<div class="meta">' + (q.type === "yn" ? "Pregunta Sí / No (cuenta para el puntaje)" : "Pregunta abierta (comentario)") + "</div>" +
         "</div>" +
         '<div class="row-actions">' +
-        '<button class="icon-btn" data-action="edit-pregunta:' + q.id + '" title="Editar">✏️</button>' +
-        '<button class="icon-btn danger" data-action="delete-pregunta:' + q.id + '" title="Eliminar">🗑️</button>' +
+        '<button class="icon-btn" data-action="edit-pregunta:' + q.id + '" title="Editar" aria-label="Editar pregunta"><span class="msi" aria-hidden="true">edit</span></button>' +
+        '<button class="icon-btn danger" data-action="delete-pregunta:' + q.id + '" title="Eliminar" aria-label="Eliminar pregunta"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
     }).join("");
@@ -418,7 +429,7 @@
     var q = id ? DB.questions.find(function (x) { return x.id === id; }) : null;
     var type = q ? q.type : "yn";
     openModal(
-      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + ' pregunta</h2><button type="button" class="modal-close" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + ' pregunta</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
       '<form id="form-pregunta" data-id="' + (q ? q.id : "") + '">' +
       '<div class="field"><label>Pregunta</label><textarea name="text" required maxlength="160" rows="2" placeholder="Ej. ¿La bebida se sirvió a la temperatura correcta?">' + esc(q ? q.text : "") + "</textarea></div>" +
       '<div class="field"><label>Tipo de respuesta</label>' +
@@ -543,14 +554,13 @@
       '<div class="hero-avatar-wrap">' + avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 56) + "</div>" +
       '<div class="score-num">' + scoreDisplay + "</div>" +
       '<div class="score-label">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
-      '<div class="score-label">' + formatDateTime(ev.createdAt) + "</div>" +
-      '<div class="score-label">Evaluó: ' + esc(ev.evaluatorName || "—") + "</div>" +
+      '<div class="score-label dim">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
       (cmpAny
         ? '<div class="compare ' + cmpAny.cls + '">' + cmpAny.text + "</div>"
-        : '<div class="compare">Primera evaluación registrada para este empleado</div>') +
-      (cmpSame ? '<div class="compare ' + cmpSame.cls + '">Misma bebida: ' + cmpSame.text + "</div>" : "") +
+        : '<div class="compare trend-flat">Primera evaluación registrada para este empleado</div>') +
+      (cmpSame ? '<div class="compare secondary ' + cmpSame.cls + '">Misma bebida: ' + cmpSame.text + "</div>" : "") +
       "</div>" +
-      '<div class="section-title">Respuestas</div>' +
+      '<div class="subsection-title">Respuestas</div>' +
       ev.answers.map(function (a) {
         var answerHtml = a.type === "yn"
           ? '<div class="qa-answer ' + (a.value ? "yes" : "no") + '">' + (a.value ? "Sí ✓" : "No ✗") + "</div>"
@@ -568,9 +578,9 @@
 
   function renderEvaluar() {
     var c = document.getElementById("evaluar-content");
-    if (!DB.employees.length) { c.innerHTML = emptyStateHtml("👤", "Primero agrega al menos un empleado.", "empleados"); return; }
-    if (!DB.drinks.length) { c.innerHTML = emptyStateHtml("🥤", "Primero agrega al menos una bebida a evaluar.", "bebidas"); return; }
-    if (!DB.questions.length) { c.innerHTML = emptyStateHtml("📋", "Primero agrega al menos una pregunta de evaluación.", "preguntas"); return; }
+    if (!DB.employees.length) { c.innerHTML = emptyStateHtml("group", "Primero agrega al menos un empleado.", "empleados"); return; }
+    if (!DB.drinks.length) { c.innerHTML = emptyStateHtml("local_cafe", "Primero agrega al menos una bebida a evaluar.", "bebidas"); return; }
+    if (!DB.questions.length) { c.innerHTML = emptyStateHtml("checklist", "Primero agrega al menos una pregunta de evaluación.", "preguntas"); return; }
 
     if (evalState.step === "result") {
       var ev = DB.evaluations.find(function (e) { return e.id === evalState.resultId; });
@@ -670,7 +680,7 @@
 
     var c = document.getElementById("historial-content");
     if (!list.length) {
-      c.innerHTML = emptyStateHtml("📜", "No hay evaluaciones que coincidan con el filtro.", null);
+      c.innerHTML = emptyStateHtml("history", "No hay evaluaciones que coincidan con el filtro.", null);
       return;
     }
     c.innerHTML = list.map(function (ev) {
@@ -683,7 +693,7 @@
         "</div>" +
         '<div class="row-actions">' +
         '<div class="val" style="font-weight:800;color:var(--green);margin-right:2px;">' + scoreDisplay + "</div>" +
-        '<button class="icon-btn danger" data-action="hist-delete:' + ev.id + '" title="Eliminar">🗑️</button>' +
+        '<button class="icon-btn danger" data-action="hist-delete:' + ev.id + '" title="Eliminar" aria-label="Eliminar evaluación"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
     }).join("");
@@ -693,7 +703,7 @@
     var ev = DB.evaluations.find(function (e) { return e.id === id; });
     if (!ev) return;
     openModal(
-      '<div class="modal-header"><h2>Detalle de evaluación</h2><button type="button" class="modal-close" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-header"><h2>Detalle de evaluación</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
       evalResultHtml(ev, false)
     );
   }
@@ -838,6 +848,7 @@
     var parts = target.dataset.action.split(":");
     var action = parts[0], a1 = parts[1], a2 = parts[2];
     switch (action) {
+      case "enter-app": enterApp(); break;
       case "nav": showView(a1); break;
       case "open-datos": showView("datos"); break;
       case "close-modal": closeModal(); break;
@@ -854,7 +865,7 @@
         var preview = document.getElementById("photo-preview");
         var removeBtn = document.getElementById("remove-photo-btn");
         if (hidden) hidden.value = "";
-        if (preview) preview.innerHTML = "📷";
+        if (preview) preview.innerHTML = '<span class="msi" aria-hidden="true">photo_camera</span>';
         if (removeBtn) removeBtn.style.display = "none";
         break;
       }
@@ -920,10 +931,22 @@
     DB = loadDB();
     try { evalState.evaluatorName = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
 
+    var greetingText = "Hola, " + OWNER_FIRST_NAME;
+    var splashGreetingEl = document.getElementById("splash-greeting");
+    var headerGreetingEl = document.getElementById("header-greeting");
+    if (splashGreetingEl) splashGreetingEl.innerHTML = esc(greetingText) + ' <span style="font-size:30px">☕</span>';
+    if (headerGreetingEl) headerGreetingEl.textContent = greetingText + " ☕";
+
     document.addEventListener("click", handleGlobalClick);
     document.addEventListener("submit", handleGlobalSubmit);
     document.addEventListener("change", handleGlobalChange);
     document.addEventListener("input", handleGlobalInput);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && document.getElementById("modal-overlay").classList.contains("active")) {
+        closeModal();
+      }
+    });
 
     document.getElementById("modal-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-overlay") closeModal();

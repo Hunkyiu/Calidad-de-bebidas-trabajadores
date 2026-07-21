@@ -1,9 +1,9 @@
-const CACHE_NAME = "qc-bebidas-v2";
+const CACHE_NAME = "qc-bebidas-v4";
 const ASSETS = [
   "./",
   "./index.html",
-  "./css/styles.css",
-  "./js/app.js",
+  "./css/styles.css?v=7",
+  "./js/app.js?v=7",
   "./manifest.json",
   "./icons/icon.svg"
 ];
