@@ -1,11 +1,11 @@
-const CACHE_NAME = "qc-bebidas-v5";
+const CACHE_NAME = "qc-bebidas-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./css/styles.css?v=8",
   "./js/app.js?v=8",
   "./manifest.json",
-  "./icons/icon.svg"
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
