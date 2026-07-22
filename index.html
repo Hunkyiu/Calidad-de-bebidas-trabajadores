@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL@20..48,300..600,0..1&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=8">
+<link rel="stylesheet" href="css/styles.css?v=10">
 </head>
 <body>
 <div id="app">
@@ -71,13 +71,14 @@
         <div class="fab-anchor"><button class="fab" id="btn-add-empleado" data-action="add-empleado" title="Agregar empleado" aria-label="Agregar empleado"><span class="msi" aria-hidden="true">add</span></button></div>
       </section>
 
-      <section id="view-bebidas" class="view">
+      <section id="view-recetario" class="view">
         <div class="section-title">
-          <div class="section-title-lhs"><span class="section-badge"><span class="msi fill" aria-hidden="true">local_cafe</span></span><span>Bebidas a evaluar</span></div>
-          <span class="counter-pill" id="drink-counter">0/20</span>
+          <div class="section-title-lhs"><span class="section-badge"><span class="msi fill" aria-hidden="true">menu_book</span></span><span>Recetario</span></div>
+          <span class="counter-pill" id="recetario-counter">0 bebidas</span>
         </div>
-        <div id="bebidas-content"></div>
-        <div class="fab-anchor"><button class="fab" id="btn-add-bebida" data-action="add-bebida" title="Agregar bebida" aria-label="Agregar bebida"><span class="msi" aria-hidden="true">add</span></button></div>
+        <div class="search-field"><span class="msi" aria-hidden="true">search</span><input type="text" id="recetario-search" placeholder="Buscar bebida..." aria-label="Buscar bebida"></div>
+        <div class="segmented" id="recetario-tabs"></div>
+        <div id="recetario-content"></div>
       </section>
 
       <section id="view-preguntas" class="view">
@@ -85,6 +86,7 @@
           <div class="section-title-lhs"><span class="section-badge"><span class="msi fill" aria-hidden="true">checklist</span></span><span>Preguntas de evaluación</span></div>
           <span class="counter-pill" id="q-counter">0/20</span>
         </div>
+        <div class="segmented" id="preguntas-tabs"></div>
         <div id="preguntas-content"></div>
         <div class="fab-anchor"><button class="fab" id="btn-add-pregunta" data-action="add-pregunta" title="Agregar pregunta" aria-label="Agregar pregunta"><span class="msi" aria-hidden="true">add</span></button></div>
       </section>
@@ -95,7 +97,6 @@
         </div>
         <div class="filter-row">
           <select id="hist-filter-emp" aria-label="Filtrar por empleado"><option value="">Todos los empleados</option></select>
-          <select id="hist-filter-drink" aria-label="Filtrar por bebida"><option value="">Todas las bebidas</option></select>
         </div>
         <div id="historial-content"></div>
       </section>
@@ -111,7 +112,7 @@
           <label class="btn btn-secondary btn-block" for="import-file-input" style="cursor:pointer;">Importar respaldo (JSON)</label>
           <input type="file" id="import-file-input" accept="application/json" style="display:none;">
           <button class="btn btn-gold btn-block" data-action="load-demo">Cargar datos de ejemplo</button>
-          <button class="btn btn-danger btn-block" data-action="clear-all">Borrar todos los datos</button>
+          <button class="btn btn-danger btn-block" data-action="clear-all">Borrar empleados y evaluaciones</button>
         </div>
         <div class="app-footer-credit">
           <div class="label">Aplicación diseñada por</div>
@@ -125,7 +126,7 @@
       <button class="nav-btn active" data-action="nav:ranking"><span class="nav-pill"><span class="msi" aria-hidden="true">trophy</span></span>Ranking</button>
       <button class="nav-btn" data-action="nav:evaluar"><span class="nav-pill"><span class="msi" aria-hidden="true">fact_check</span></span>Evaluar</button>
       <button class="nav-btn" data-action="nav:empleados"><span class="nav-pill"><span class="msi" aria-hidden="true">group</span></span>Equipo</button>
-      <button class="nav-btn" data-action="nav:bebidas"><span class="nav-pill"><span class="msi" aria-hidden="true">local_cafe</span></span>Bebidas</button>
+      <button class="nav-btn" data-action="nav:recetario"><span class="nav-pill"><span class="msi" aria-hidden="true">menu_book</span></span>Recetario</button>
       <button class="nav-btn" data-action="nav:preguntas"><span class="nav-pill"><span class="msi" aria-hidden="true">checklist</span></span>Preguntas</button>
       <button class="nav-btn" data-action="nav:historial"><span class="nav-pill"><span class="msi" aria-hidden="true">history</span></span>Historial</button>
     </nav>
@@ -138,6 +139,7 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-<script src="js/app.js?v=8"></script>
+<script src="js/drinks-data.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
 </body>
 </html>

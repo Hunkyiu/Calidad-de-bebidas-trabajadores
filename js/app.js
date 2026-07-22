@@ -1,21 +1,35 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "sbux_qc_data_v1";
+  var STORAGE_KEY = "sbux_qc_data_v2";
   var LAST_EVALUATOR_KEY = "sbux_qc_last_evaluator";
-  var LIMITS = { employees: 20, drinks: 20, questions: 20 };
+  var LIMITS = { employees: 20, questions: 20 };
   var PHOTO_SIZE = 200;
   var GREETING_NAME = "Partner";
+  var ROUNDS_PER_SESSION = 5;
+
+  var CATEGORIES = [
+    { id: "caliente", label: "Caliente", icon: "local_fire_department" },
+    { id: "helada", label: "Helada", icon: "ac_unit" },
+    { id: "frappuccino", label: "Frappuccino", icon: "blender" }
+  ];
+  var SUBCAT_LABELS = {
+    con_cafe: "Con café", sin_cafe: "Sin café",
+    base_coffee: "Base coffee", base_cream: "Base cream", frozen: "Frozen",
+    especial: "Especiales"
+  };
 
   var DB = null;
-  var evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: "", answers: {} };
-  var histFilters = { empId: "", drinkId: "" };
+  var evalState = { phase: "setup", employeeId: null, evaluatorName: "", rounds: [], roundIndex: 0, resultId: null };
+  var histFilters = { empId: "" };
+  var recetarioState = { category: "all", search: "" };
+  var preguntasState = { category: "caliente" };
   var toastTimer = null;
 
   /* ---------- storage ---------- */
 
   function emptyDB() {
-    return { employees: [], drinks: [], questions: [], evaluations: [] };
+    return { employees: [], drinks: [], questionSets: { caliente: [], helada: [], frappuccino: [] }, evaluations: [] };
   }
 
   function loadDB() {
@@ -23,10 +37,15 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return emptyDB();
       var parsed = JSON.parse(raw);
+      var qs = parsed.questionSets || {};
       return {
         employees: Array.isArray(parsed.employees) ? parsed.employees : [],
         drinks: Array.isArray(parsed.drinks) ? parsed.drinks : [],
-        questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+        questionSets: {
+          caliente: Array.isArray(qs.caliente) ? qs.caliente : [],
+          helada: Array.isArray(qs.helada) ? qs.helada : [],
+          frappuccino: Array.isArray(qs.frappuccino) ? qs.frappuccino : []
+        },
         evaluations: Array.isArray(parsed.evaluations) ? parsed.evaluations : []
       };
     } catch (err) {
@@ -37,6 +56,59 @@
 
   function saveDB() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+  }
+
+  function defaultQuestions(category) {
+    var byCat = {
+      caliente: [
+        ["¿Se respetó la receta estándar (shots, jarabe, medidas)?", "yn"],
+        ["¿La leche se vaporizó a la temperatura y textura correctas?", "yn"],
+        ["¿La bebida se sirvió a la temperatura adecuada?", "yn"],
+        ["¿El acabado (crema batida, espirales, toppings) fue el correcto?", "yn"],
+        ["Observaciones generales", "open"],
+        ["¿Qué podría mejorar?", "open"]
+      ],
+      helada: [
+        ["¿Se respetó la receta estándar (shots, jarabe, hielo)?", "yn"],
+        ["¿Se usó la cantidad de hielo correcta?", "yn"],
+        ["¿El shakeo o mezclado se hizo correctamente?", "yn"],
+        ["¿La presentación y el nivel de llenado fueron correctos?", "yn"],
+        ["Observaciones generales", "open"],
+        ["¿Qué podría mejorar?", "open"]
+      ],
+      frappuccino: [
+        ["¿Se respetó la receta estándar (base, jarabe, roast)?", "yn"],
+        ["¿La consistencia del licuado fue la correcta?", "yn"],
+        ["¿El topping y acabado final fueron los correctos?", "yn"],
+        ["¿Se usó el botón de licuado y medida de hielo correctos?", "yn"],
+        ["Observaciones generales", "open"],
+        ["¿Qué podría mejorar?", "open"]
+      ]
+    };
+    var now = Date.now();
+    return (byCat[category] || []).map(function (pair) {
+      return { id: uid("q"), text: pair[0], type: pair[1], createdAt: now };
+    });
+  }
+
+  function buildRepertoire() {
+    var data = (typeof window !== "undefined" && window.DRINKS_DATA) ? window.DRINKS_DATA : [];
+    return data.map(function (d) {
+      return {
+        id: d.id, name: d.name, category: d.category, subcategory: d.subcategory || null,
+        description: d.description || "", steps: Array.isArray(d.steps) ? d.steps : [],
+        createdAt: Date.now()
+      };
+    });
+  }
+
+  function seedIfNeeded() {
+    var changed = false;
+    if (!DB.drinks.length) { DB.drinks = buildRepertoire(); changed = true; }
+    CATEGORIES.forEach(function (c) {
+      if (!DB.questionSets[c.id].length) { DB.questionSets[c.id] = defaultQuestions(c.id); changed = true; }
+    });
+    if (changed) saveDB();
   }
 
   /* ---------- helpers ---------- */
@@ -96,6 +168,16 @@
       esc(getInitials(person ? person.name : "")) + "</div>";
   }
 
+  function categoryMeta(catId) {
+    for (var i = 0; i < CATEGORIES.length; i++) { if (CATEGORIES[i].id === catId) return CATEGORIES[i]; }
+    return { id: catId, label: catId, icon: "local_cafe" };
+  }
+
+  function catBadgeHtml(catId) {
+    var meta = categoryMeta(catId);
+    return '<span class="cat-badge cat-' + meta.id + '"><span class="msi" aria-hidden="true">' + meta.icon + '</span>' + esc(meta.label) + "</span>";
+  }
+
   function resizeImageFile(file, maxSize, callback) {
     var reader = new FileReader();
     reader.onload = function (e) {
@@ -136,6 +218,7 @@
     var sheet = document.getElementById("modal-sheet");
     sheet.innerHTML = html;
     document.getElementById("modal-overlay").classList.add("active");
+    sheet.scrollTop = 0;
     var focusable = sheet.querySelector("input, textarea, select, button:not(.modal-close)");
     if (focusable) focusable.focus();
   }
@@ -179,25 +262,34 @@
     return Math.round((yes / yn.length) * 100);
   }
 
-  function findPreviousEval(evaluation, sameDrinkOnly) {
+  function findPreviousSession(session) {
     var list = DB.evaluations.filter(function (e) {
-      return e.employeeId === evaluation.employeeId &&
-        e.id !== evaluation.id &&
-        e.createdAt < evaluation.createdAt &&
-        (!sameDrinkOnly || e.drinkId === evaluation.drinkId);
+      return e.employeeId === session.employeeId && e.id !== session.id && e.createdAt < session.createdAt;
     });
     if (!list.length) return null;
     list.sort(function (a, b) { return b.createdAt - a.createdAt; });
     return list[0];
   }
 
-  function compareLine(current, previous) {
-    if (!previous || previous.score == null || current.score == null) return null;
-    var delta = current.score - previous.score;
+  function findPreviousRound(employeeId, drinkId, beforeTs, excludeSessionId) {
+    var best = null;
+    DB.evaluations.forEach(function (session) {
+      if (session.employeeId !== employeeId || session.id === excludeSessionId || session.createdAt >= beforeTs) return;
+      (session.rounds || []).forEach(function (r) {
+        if (r.drinkId !== drinkId) return;
+        if (!best || session.createdAt > best.sessionCreatedAt) best = { score: r.score, sessionCreatedAt: session.createdAt };
+      });
+    });
+    return best;
+  }
+
+  function compareLine(currentScore, previousScore, previousLabel) {
+    if (previousScore == null || currentScore == null) return null;
+    var delta = currentScore - previousScore;
     var cls = delta > 0 ? "trend-up" : delta < 0 ? "trend-down" : "trend-flat";
     var arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
     var sign = delta > 0 ? "+" : "";
-    return { cls: cls, text: arrow + " " + sign + delta + " pts vs. anterior (" + previous.score + "%)" };
+    return { cls: cls, text: arrow + " " + sign + delta + " pts vs. " + previousLabel + " (" + previousScore + "%)" };
   }
 
   function computeRanking() {
@@ -350,75 +442,105 @@
     saveDB(); renderAll(); toast("Empleado eliminado");
   }
 
-  /* ---------- render: bebidas ---------- */
+  /* ---------- render: recetario ---------- */
 
-  function renderBebidas() {
-    document.getElementById("drink-counter").textContent = DB.drinks.length + "/" + LIMITS.drinks;
-    document.getElementById("btn-add-bebida").disabled = DB.drinks.length >= LIMITS.drinks;
-    var c = document.getElementById("bebidas-content");
-    if (!DB.drinks.length) {
-      c.innerHTML = emptyStateHtml("local_cafe", 'Aún no hay bebidas registradas. Toca "+" para agregar la primera.', null);
-      return;
-    }
-    c.innerHTML = DB.drinks.map(function (drink) {
-      var count = DB.evaluations.filter(function (e) { return e.drinkId === drink.id; }).length;
-      return '<div class="list-row">' +
-        '<div class="info">' +
-        '<div class="name">' + esc(drink.name) + "</div>" +
-        '<div class="meta">' + count + " evaluación(es) registradas</div>" +
-        "</div>" +
-        '<div class="row-actions">' +
-        '<button class="icon-btn" data-action="edit-bebida:' + drink.id + '" title="Editar" aria-label="Editar ' + esc(drink.name) + '"><span class="msi" aria-hidden="true">edit</span></button>' +
-        '<button class="icon-btn danger" data-action="delete-bebida:' + drink.id + '" title="Eliminar" aria-label="Eliminar ' + esc(drink.name) + '"><span class="msi" aria-hidden="true">delete</span></button>' +
-        "</div>" +
-        "</div>";
+  function renderRecetarioTabs() {
+    var el = document.getElementById("recetario-tabs");
+    if (!el) return;
+    var tabs = [{ id: "all", label: "Todas", icon: "apps" }].concat(CATEGORIES);
+    el.innerHTML = tabs.map(function (t) {
+      var active = recetarioState.category === t.id;
+      var tone = t.id === "all" ? "gold" : t.id;
+      return '<button type="button" class="seg' + (active ? " active tone-" + tone : "") + '" data-action="recetario-cat:' + t.id + '">' +
+        '<span class="msi" aria-hidden="true">' + t.icon + "</span>" + esc(t.label) + "</button>";
     }).join("");
   }
 
-  function openBebidaForm(id) {
-    var drink = id ? DB.drinks.find(function (x) { return x.id === id; }) : null;
-    openModal(
-      '<div class="modal-header"><h2>' + (drink ? "Editar" : "Agregar") + ' bebida</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
-      '<form id="form-bebida" data-id="' + (drink ? drink.id : "") + '">' +
-      '<div class="field"><label>Nombre de la bebida</label><input type="text" name="name" required maxlength="60" value="' + esc(drink ? drink.name : "") + '" placeholder="Ej. Frapuccino de Caramelo"></div>' +
-      '<button type="submit" class="btn btn-primary btn-block">Guardar</button>' +
-      "</form>"
-    );
-    var input = document.querySelector("#form-bebida [name=name]");
-    if (input) input.focus();
-  }
+  function renderRecetario() {
+    renderRecetarioTabs();
+    var search = recetarioState.search.trim().toLowerCase();
+    var list = DB.drinks.filter(function (d) {
+      if (recetarioState.category !== "all" && d.category !== recetarioState.category) return false;
+      if (search && d.name.toLowerCase().indexOf(search) === -1) return false;
+      return true;
+    });
+    var counterEl = document.getElementById("recetario-counter");
+    if (counterEl) counterEl.textContent = list.length + (list.length === 1 ? " bebida" : " bebidas");
 
-  function saveBebidaFromForm(form) {
-    var id = form.dataset.id;
-    var name = form.name.value.trim();
-    if (!name) { toast("El nombre es obligatorio"); return; }
-    if (id) {
-      var drink = DB.drinks.find(function (x) { return x.id === id; });
-      if (drink) drink.name = name;
-    } else {
-      if (DB.drinks.length >= LIMITS.drinks) { toast("Límite de 20 bebidas alcanzado"); return; }
-      DB.drinks.push({ id: uid("drk"), name: name, createdAt: Date.now() });
+    var c = document.getElementById("recetario-content");
+    if (!list.length) {
+      c.innerHTML = emptyStateHtml("search_off", "No hay bebidas que coincidan con tu búsqueda.", null);
+      return;
     }
-    saveDB(); closeModal(); renderAll(); toast("Bebida guardada");
+
+    if (recetarioState.category === "all") {
+      c.innerHTML = CATEGORIES.map(function (cat) {
+        var items = list.filter(function (d) { return d.category === cat.id; });
+        if (!items.length) return "";
+        return '<div class="recipe-group-label">' + esc(cat.label) + " (" + items.length + ")</div>" + items.map(recipeRowHtml).join("");
+      }).join("");
+      return;
+    }
+
+    var groups = {};
+    var order = [];
+    list.forEach(function (d) {
+      var key = d.subcategory || "otras";
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(d);
+    });
+    c.innerHTML = order.map(function (key) {
+      return '<div class="recipe-group-label">' + esc(SUBCAT_LABELS[key] || key) + "</div>" + groups[key].map(recipeRowHtml).join("");
+    }).join("");
   }
 
-  function deleteBebida(id) {
-    if (!confirm("¿Eliminar esta bebida? El historial de evaluaciones que ya la usaron se conservará.")) return;
-    DB.drinks = DB.drinks.filter(function (x) { return x.id !== id; });
-    saveDB(); renderAll(); toast("Bebida eliminada");
+  function recipeRowHtml(d) {
+    var meta = categoryMeta(d.category);
+    return '<div class="recipe-row" role="button" tabindex="0" data-action="recipe-open:' + d.id + '" aria-label="Ver receta de ' + esc(d.name) + '">' +
+      '<div class="recipe-icon cat-' + meta.id + '"><span class="msi" aria-hidden="true">' + meta.icon + "</span></div>" +
+      '<div class="info"><div class="name">' + esc(d.name) + '</div><div class="meta">' + esc(d.description) + "</div></div>" +
+      '<span class="msi chevron" aria-hidden="true">chevron_right</span>' +
+      "</div>";
+  }
+
+  function recipeDetailHtml(d) {
+    return '<div class="recipe-detail-head">' + catBadgeHtml(d.category) +
+      '<div class="desc">' + esc(d.description) + "</div></div>" +
+      '<ol class="recipe-steps">' + d.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>";
+  }
+
+  function openRecipeDetail(id) {
+    var d = DB.drinks.find(function (x) { return x.id === id; });
+    if (!d) return;
+    openModal(
+      '<div class="modal-header"><h2>' + esc(d.name) + '</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
+      recipeDetailHtml(d)
+    );
   }
 
   /* ---------- render: preguntas ---------- */
 
+  function renderPreguntasTabs() {
+    var el = document.getElementById("preguntas-tabs");
+    if (!el) return;
+    el.innerHTML = CATEGORIES.map(function (c) {
+      var active = preguntasState.category === c.id;
+      return '<button type="button" class="seg' + (active ? " active tone-" + c.id : "") + '" data-action="preguntas-cat:' + c.id + '">' +
+        '<span class="msi" aria-hidden="true">' + c.icon + "</span>" + esc(c.label) + "</button>";
+    }).join("");
+  }
+
   function renderPreguntas() {
-    document.getElementById("q-counter").textContent = DB.questions.length + "/" + LIMITS.questions;
-    document.getElementById("btn-add-pregunta").disabled = DB.questions.length >= LIMITS.questions;
+    renderPreguntasTabs();
+    var list = DB.questionSets[preguntasState.category] || [];
+    document.getElementById("q-counter").textContent = list.length + "/" + LIMITS.questions;
+    document.getElementById("btn-add-pregunta").disabled = list.length >= LIMITS.questions;
     var c = document.getElementById("preguntas-content");
-    if (!DB.questions.length) {
-      c.innerHTML = emptyStateHtml("checklist", 'Aún no hay preguntas registradas. Toca "+" para agregar la primera.', null);
+    if (!list.length) {
+      c.innerHTML = emptyStateHtml("checklist", 'Aún no hay preguntas en esta categoría. Toca "+" para agregar la primera.', null);
       return;
     }
-    c.innerHTML = DB.questions.map(function (q) {
+    c.innerHTML = list.map(function (q) {
       return '<div class="list-row">' +
         '<div class="info">' +
         '<div class="name">' + esc(q.text) + "</div>" +
@@ -432,12 +554,23 @@
     }).join("");
   }
 
+  function findQuestion(id) {
+    for (var i = 0; i < CATEGORIES.length; i++) {
+      var cat = CATEGORIES[i].id;
+      var q = DB.questionSets[cat].find(function (x) { return x.id === id; });
+      if (q) return { q: q, cat: cat };
+    }
+    return null;
+  }
+
   function openPreguntaForm(id) {
-    var q = id ? DB.questions.find(function (x) { return x.id === id; }) : null;
+    var found = id ? findQuestion(id) : null;
+    var q = found ? found.q : null;
     var type = q ? q.type : "yn";
+    var cat = found ? found.cat : preguntasState.category;
     openModal(
-      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + ' pregunta</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
-      '<form id="form-pregunta" data-id="' + (q ? q.id : "") + '">' +
+      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + " pregunta · " + esc(categoryMeta(cat).label) + '</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
+      '<form id="form-pregunta" data-id="' + (q ? q.id : "") + '" data-cat="' + cat + '">' +
       '<div class="field"><label>Pregunta</label><textarea name="text" required maxlength="160" rows="2" placeholder="Ej. ¿La bebida se sirvió a la temperatura correcta?">' + esc(q ? q.text : "") + "</textarea></div>" +
       '<div class="field"><label>Tipo de respuesta</label>' +
       '<div class="radio-group">' +
@@ -453,31 +586,43 @@
 
   function savePreguntaFromForm(form) {
     var id = form.dataset.id;
+    var cat = form.dataset.cat;
     var text = form.text.value.trim();
     var type = form.type.value;
     if (!text) { toast("La pregunta no puede estar vacía"); return; }
     if (id) {
-      var q = DB.questions.find(function (x) { return x.id === id; });
-      if (q) { q.text = text; q.type = type; }
+      var found = findQuestion(id);
+      if (found) { found.q.text = text; found.q.type = type; }
     } else {
-      if (DB.questions.length >= LIMITS.questions) { toast("Límite de 20 preguntas alcanzado"); return; }
-      DB.questions.push({ id: uid("q"), text: text, type: type, createdAt: Date.now() });
+      if (DB.questionSets[cat].length >= LIMITS.questions) { toast("Límite de " + LIMITS.questions + " preguntas alcanzado"); return; }
+      DB.questionSets[cat].push({ id: uid("q"), text: text, type: type, createdAt: Date.now() });
     }
     saveDB(); closeModal(); renderAll(); toast("Pregunta guardada");
   }
 
   function deletePregunta(id) {
     if (!confirm("¿Eliminar esta pregunta? Las evaluaciones ya guardadas conservarán su respuesta.")) return;
-    DB.questions = DB.questions.filter(function (x) { return x.id !== id; });
+    var found = findQuestion(id);
+    if (found) DB.questionSets[found.cat] = DB.questionSets[found.cat].filter(function (x) { return x.id !== id; });
     saveDB(); renderAll(); toast("Pregunta eliminada");
   }
 
-  /* ---------- evaluar (wizard) ---------- */
+  /* ---------- evaluar (wizard: 5 random drinks) ---------- */
+
+  function pickRandomDrinks(n) {
+    var pool = DB.drinks.slice();
+    var picked = [];
+    while (picked.length < n && pool.length) {
+      var idx = Math.floor(Math.random() * pool.length);
+      picked.push(pool.splice(idx, 1)[0]);
+    }
+    return picked;
+  }
 
   function evalRestart() {
     var lastEvaluator = "";
     try { lastEvaluator = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
-    evalState = { step: 1, employeeId: null, drinkId: null, evaluatorName: lastEvaluator, answers: {} };
+    evalState = { phase: "setup", employeeId: null, evaluatorName: lastEvaluator, rounds: [], roundIndex: 0, resultId: null };
     renderEvaluar();
   }
 
@@ -487,92 +632,120 @@
   }
 
   function evalPickEmployee(id) {
-    evalState.employeeId = id;
-    evalState.step = 2;
+    evalState.employeeId = evalState.employeeId === id ? null : id;
     renderEvaluar();
   }
 
-  function evalPickDrink(id) {
-    evalState.drinkId = id;
-    evalState.step = 3;
+  function evalStart() {
+    var evaluatorName = (evalState.evaluatorName || "").trim();
+    if (!evaluatorName) { toast("Escribe el nombre de quien realiza la evaluación"); return; }
+    if (!evalState.employeeId) { toast("Selecciona al empleado a evaluar"); return; }
+    if (DB.drinks.length < 1) { toast("El repertorio de bebidas está vacío"); return; }
+    var picked = pickRandomDrinks(Math.min(ROUNDS_PER_SESSION, DB.drinks.length));
+    evalState.rounds = picked.map(function (d) {
+      return { drinkId: d.id, drinkName: d.name, category: d.category, subcategory: d.subcategory, description: d.description, answers: {} };
+    });
+    evalState.roundIndex = 0;
+    evalState.phase = "rounds";
     renderEvaluar();
   }
 
   function evalBack() {
-    if (evalState.step > 1 && evalState.step !== "result") evalState.step--;
-    renderEvaluar();
+    if (evalState.phase === "rounds" && evalState.roundIndex > 0) {
+      evalState.roundIndex--;
+      renderEvaluar();
+    }
   }
 
   function evalAnswerYN(qid, val) {
-    evalState.answers[qid] = { type: "yn", value: val === "yes" };
+    evalState.rounds[evalState.roundIndex].answers[qid] = { type: "yn", value: val === "yes" };
     renderEvaluar();
   }
 
   function evalOpenInput(qid, val) {
-    evalState.answers[qid] = { type: "open", value: val };
+    evalState.rounds[evalState.roundIndex].answers[qid] = { type: "open", value: val };
   }
 
-  function evalSubmit() {
-    var emp = DB.employees.find(function (e) { return e.id === evalState.employeeId; });
-    var drink = DB.drinks.find(function (d) { return d.id === evalState.drinkId; });
-    if (!emp || !drink) { toast("Selecciona empleado y bebida"); return; }
-    var evaluatorName = (evalState.evaluatorName || "").trim();
-    if (!evaluatorName) {
-      toast("Escribe el nombre de quien realiza la evaluación");
-      evalState.step = 1;
+  function evalNext() {
+    var round = evalState.rounds[evalState.roundIndex];
+    var qList = DB.questionSets[round.category] || [];
+    var ynQs = qList.filter(function (q) { return q.type === "yn"; });
+    var allAnswered = ynQs.every(function (q) { return round.answers[q.id] && round.answers[q.id].type === "yn"; });
+    if (!allAnswered) { toast("Responde todas las preguntas Sí / No"); return; }
+    if (evalState.roundIndex < evalState.rounds.length - 1) {
+      evalState.roundIndex++;
       renderEvaluar();
-      return;
+    } else {
+      evalSubmitSession();
     }
-    var answers = DB.questions.map(function (q) {
-      var a = evalState.answers[q.id];
-      if (q.type === "yn") {
-        return { questionId: q.id, text: q.text, type: "yn", value: a ? a.value : null };
-      }
-      return { questionId: q.id, text: q.text, type: "open", value: a ? (a.value || "") : "" };
+  }
+
+  function evalSubmitSession() {
+    var emp = DB.employees.find(function (e) { return e.id === evalState.employeeId; });
+    if (!emp) { toast("Selecciona un empleado válido"); evalState.phase = "setup"; renderEvaluar(); return; }
+    var roundsOut = evalState.rounds.map(function (round) {
+      var qList = DB.questionSets[round.category] || [];
+      var answers = qList.map(function (q) {
+        var a = round.answers[q.id];
+        if (q.type === "yn") return { questionId: q.id, text: q.text, type: "yn", value: a ? a.value : null };
+        return { questionId: q.id, text: q.text, type: "open", value: a ? (a.value || "") : "" };
+      });
+      return {
+        drinkId: round.drinkId, drinkName: round.drinkName, category: round.category, subcategory: round.subcategory,
+        answers: answers, score: computeScore(answers)
+      };
     });
-    var ynAnswered = answers.filter(function (a) { return a.type === "yn"; });
-    if (ynAnswered.some(function (a) { return a.value === null; })) {
-      toast("Responde todas las preguntas Sí / No"); return;
-    }
-    var score = computeScore(answers);
-    var newEval = {
+    var scored = roundsOut.filter(function (r) { return r.score != null; });
+    var overall = scored.length ? Math.round(scored.reduce(function (s, r) { return s + r.score; }, 0) / scored.length) : null;
+    var session = {
       id: uid("ev"),
       employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
-      drinkId: drink.id, drinkName: drink.name,
-      evaluatorName: evaluatorName,
-      answers: answers, score: score,
+      evaluatorName: (evalState.evaluatorName || "").trim(),
+      rounds: roundsOut, score: overall,
       createdAt: Date.now()
     };
-    DB.evaluations.push(newEval);
+    DB.evaluations.push(session);
     saveDB();
-    evalState.step = "result";
-    evalState.resultId = newEval.id;
+    evalState.phase = "result";
+    evalState.resultId = session.id;
     renderAll();
     toast("Evaluación guardada");
   }
 
-  function evalResultHtml(ev, isWizardResult) {
-    var prevAny = findPreviousEval(ev, false);
-    var prevSame = findPreviousEval(ev, true);
-    var cmpAny = compareLine(ev, prevAny);
-    var cmpSame = (prevSame && (!prevAny || prevSame.id !== prevAny.id)) ? compareLine(ev, prevSame) : null;
-    var scoreDisplay = ev.score == null ? "N/A" : ev.score + "%";
+  function roundQaHtml(round) {
+    return round.answers.map(function (a) {
+      var answerHtml = a.type === "yn"
+        ? '<div class="qa-answer ' + (a.value ? "yes" : "no") + '">' + (a.value ? "Sí ✓" : "No ✗") + "</div>"
+        : '<div class="qa-answer open">' + (a.value ? esc(a.value) : '<span class="field-hint">Sin comentario</span>') + "</div>";
+      return '<div class="qa-item"><div class="q-text">' + esc(a.text) + "</div>" + answerHtml + "</div>";
+    }).join("");
+  }
+
+  function sessionResultHtml(session, isWizardResult) {
+    var prevSession = findPreviousSession(session);
+    var cmp = prevSession ? compareLine(session.score, prevSession.score, "sesión anterior") : null;
+    var scoreDisplay = session.score == null ? "N/A" : session.score + "%";
     var html = '<div class="score-hero">' +
-      '<div class="hero-avatar-wrap">' + avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 56) + "</div>" +
-      '<div class="score-num ' + scoreColorClass(ev.score) + '">' + scoreDisplay + "</div>" +
-      '<div class="score-label">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
-      '<div class="score-label dim">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
-      (cmpAny
-        ? '<div class="compare ' + cmpAny.cls + '">' + cmpAny.text + "</div>"
+      '<div class="hero-avatar-wrap">' + avatarHtml({ name: session.employeeName, photo: session.employeePhoto }, 56) + "</div>" +
+      '<div class="score-num ' + scoreColorClass(session.score) + '">' + scoreDisplay + "</div>" +
+      '<div class="score-label">' + esc(session.employeeName) + " · " + session.rounds.length + " bebidas</div>" +
+      '<div class="score-label dim">' + formatDateTime(session.createdAt) + " · Evaluó: " + esc(session.evaluatorName || "—") + "</div>" +
+      (cmp
+        ? '<div class="compare ' + cmp.cls + '">' + cmp.text + "</div>"
         : '<div class="compare trend-flat">Primera evaluación registrada para este empleado</div>') +
-      (cmpSame ? '<div class="compare secondary ' + cmpSame.cls + '">Misma bebida: ' + cmpSame.text + "</div>" : "") +
       "</div>" +
-      '<div class="subsection-title">Respuestas</div>' +
-      ev.answers.map(function (a) {
-        var answerHtml = a.type === "yn"
-          ? '<div class="qa-answer ' + (a.value ? "yes" : "no") + '">' + (a.value ? "Sí ✓" : "No ✗") + "</div>"
-          : '<div class="qa-answer open">' + (a.value ? esc(a.value) : '<span class="field-hint">Sin comentario</span>') + "</div>";
-        return '<div class="qa-item"><div class="q-text">' + esc(a.text) + "</div>" + answerHtml + "</div>";
+      '<div class="subsection-title">Bebidas evaluadas</div>' +
+      session.rounds.map(function (round, idx) {
+        var prevRound = findPreviousRound(session.employeeId, round.drinkId, session.createdAt, session.id);
+        var rc = compareLine(round.score, prevRound ? prevRound.score : null, "última vez");
+        return '<div class="round-summary-row" role="button" tabindex="0" data-action="round-open:' + session.id + ":" + idx + '" aria-label="Ver detalle de ' + esc(round.drinkName) + '">' +
+          '<div class="idx">' + (idx + 1) + "</div>" +
+          '<div class="info"><div class="name">' + esc(round.drinkName) + "</div>" + catBadgeHtml(round.category) + "</div>" +
+          '<div>' +
+          '<div class="score ' + scoreColorClass(round.score) + '">' + (round.score == null ? "—" : round.score + "%") + "</div>" +
+          (rc ? '<div class="trend ' + rc.cls + '">' + (rc.cls === "trend-up" ? "▲" : rc.cls === "trend-down" ? "▼" : "●") + "</div>" : "") +
+          "</div>" +
+          "</div>";
       }).join("");
     if (isWizardResult) {
       html += '<div class="btn-row">' +
@@ -583,56 +756,76 @@
     return html;
   }
 
+  function roundDetailHtml(session, round, idx) {
+    var prevRound = findPreviousRound(session.employeeId, round.drinkId, session.createdAt, session.id);
+    var rc = compareLine(round.score, prevRound ? prevRound.score : null, "última vez con esta bebida");
+    return '<div class="score-hero">' +
+      '<div class="score-num ' + scoreColorClass(round.score) + '">' + (round.score == null ? "N/A" : round.score + "%") + "</div>" +
+      '<div class="score-label">Bebida ' + (idx + 1) + " de " + session.rounds.length + " · " + esc(round.drinkName) + "</div>" +
+      '<div class="score-label dim">' + esc(session.employeeName) + " · " + formatDateTime(session.createdAt) + "</div>" +
+      '<div style="margin-top:10px;">' + catBadgeHtml(round.category) + "</div>" +
+      (rc ? '<div class="compare ' + rc.cls + '">' + rc.text + "</div>" : "") +
+      "</div>" +
+      '<div class="subsection-title">Respuestas</div>' + roundQaHtml(round);
+  }
+
+  function openRoundDetail(sessionId, roundIdx) {
+    var session = DB.evaluations.find(function (e) { return e.id === sessionId; });
+    if (!session) return;
+    var round = session.rounds[roundIdx];
+    if (!round) return;
+    openModal(
+      '<div class="modal-header"><h2>Detalle de bebida</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
+      roundDetailHtml(session, round, roundIdx)
+    );
+  }
+
   function renderEvaluar() {
     var c = document.getElementById("evaluar-content");
     if (!DB.employees.length) { c.innerHTML = emptyStateHtml("group", "Primero agrega al menos un empleado.", "empleados"); return; }
-    if (!DB.drinks.length) { c.innerHTML = emptyStateHtml("local_cafe", "Primero agrega al menos una bebida a evaluar.", "bebidas"); return; }
-    if (!DB.questions.length) { c.innerHTML = emptyStateHtml("checklist", "Primero agrega al menos una pregunta de evaluación.", "preguntas"); return; }
+    if (!DB.drinks.length) { c.innerHTML = emptyStateHtml("local_cafe", "El repertorio de bebidas está vacío."); return; }
 
-    if (evalState.step === "result") {
-      var ev = DB.evaluations.find(function (e) { return e.id === evalState.resultId; });
-      if (!ev) { evalRestart(); return; }
-      c.innerHTML = evalResultHtml(ev, true);
+    if (evalState.phase === "result") {
+      var session = DB.evaluations.find(function (e) { return e.id === evalState.resultId; });
+      if (!session) { evalRestart(); return; }
+      c.innerHTML = sessionResultHtml(session, true);
       return;
     }
 
-    var stepperHtml = '<div class="stepper">' + [1, 2, 3].map(function (n) {
-      return '<div class="step ' + (evalState.step >= n ? "done" : "") + '"></div>';
-    }).join("") + "</div>";
-
-    var evaluatorHtml = '<div class="field">' +
-      '<label>¿Quién realiza la evaluación?</label>' +
-      '<input type="text" data-role="evaluator-input" maxlength="60" value="' + esc(evalState.evaluatorName || "") + '" placeholder="Tu nombre">' +
-      "</div>";
-
-    if (evalState.step === 1) {
-      c.innerHTML = stepperHtml +
-        evaluatorHtml +
-        '<div class="progress-summary">Paso 1 de 3 · Selecciona al empleado</div>' +
+    if (evalState.phase === "setup") {
+      c.innerHTML =
+        '<div class="field">' +
+        '<label>¿Quién realiza la evaluación?</label>' +
+        '<input type="text" data-role="evaluator-input" maxlength="60" value="' + esc(evalState.evaluatorName || "") + '" placeholder="Tu nombre">' +
+        "</div>" +
+        '<div class="progress-summary">Selecciona al empleado a evaluar. Se elegirán ' + ROUNDS_PER_SESSION + ' bebidas al azar del repertorio.</div>' +
         '<div class="chip-select">' +
         DB.employees.map(function (e) {
-          return '<div class="chip chip-with-avatar' + (evalState.employeeId === e.id ? " selected" : "") + '" data-action="eval-pick-employee:' + e.id + '">' +
+          return '<div class="chip chip-with-avatar' + (evalState.employeeId === e.id ? " selected" : "") + '" role="button" tabindex="0" data-action="eval-pick-employee:' + e.id + '" aria-pressed="' + (evalState.employeeId === e.id) + '">' +
             avatarHtml(e, 22) + "<span>" + esc(e.name) + "</span></div>";
         }).join("") +
-        "</div>";
+        "</div>" +
+        '<button class="btn btn-primary btn-block" style="margin-top:18px;" data-action="eval-start"' + (evalState.employeeId ? "" : " disabled") + ">Comenzar evaluación</button>";
       return;
     }
 
-    if (evalState.step === 2) {
-      c.innerHTML = stepperHtml +
-        '<div class="progress-summary">Paso 2 de 3 · Bebida a evaluar</div>' +
-        '<button class="btn btn-secondary btn-sm" data-action="eval-back" style="margin-bottom:10px;">← Atrás</button>' +
-        '<div class="chip-select">' +
-        DB.drinks.map(function (d) {
-          return '<div class="chip' + (evalState.drinkId === d.id ? " selected" : "") + '" data-action="eval-pick-drink:' + d.id + '">' + esc(d.name) + "</div>";
-        }).join("") +
-        "</div>";
-      return;
-    }
+    // phase === "rounds"
+    var round = evalState.rounds[evalState.roundIndex];
+    var dots = '<div class="round-dots">' + evalState.rounds.map(function (r, i) {
+      var cls = i < evalState.roundIndex ? "done" : i === evalState.roundIndex ? "current" : "";
+      return '<div class="dot ' + cls + '"></div>';
+    }).join("") + "</div>";
 
-    // step 3
-    var qHtml = DB.questions.map(function (q) {
-      var a = evalState.answers[q.id];
+    var head = '<div class="round-head">' +
+      '<div class="round-num">' + (evalState.roundIndex + 1) + "/" + evalState.rounds.length + "</div>" +
+      '<div class="round-info"><div class="round-drink-name">' + esc(round.drinkName) + "</div>" +
+      catBadgeHtml(round.category) +
+      (round.description ? '<div class="round-desc" style="margin-top:6px;">' + esc(round.description) + "</div>" : "") +
+      "</div></div>";
+
+    var qList = DB.questionSets[round.category] || [];
+    var qHtml = qList.map(function (q) {
+      var a = round.answers[q.id];
       if (q.type === "yn") {
         var selYes = a && a.type === "yn" && a.value === true;
         var selNo = a && a.type === "yn" && a.value === false;
@@ -651,38 +844,28 @@
         "</div>";
     }).join("");
 
-    var ynQuestions = DB.questions.filter(function (q) { return q.type === "yn"; });
-    var allAnswered = ynQuestions.every(function (q) {
-      return evalState.answers[q.id] && evalState.answers[q.id].type === "yn";
-    });
+    var ynQs = qList.filter(function (q) { return q.type === "yn"; });
+    var allAnswered = ynQs.every(function (q) { return round.answers[q.id] && round.answers[q.id].type === "yn"; });
+    var isLast = evalState.roundIndex === evalState.rounds.length - 1;
 
-    c.innerHTML = stepperHtml +
-      '<div class="progress-summary">Paso 3 de 3 · Preguntas</div>' +
-      '<button class="btn btn-secondary btn-sm" data-action="eval-back" style="margin-bottom:10px;">← Atrás</button>' +
+    c.innerHTML = dots + head +
+      (evalState.roundIndex > 0 ? '<button class="btn btn-secondary btn-sm" data-action="eval-back" style="margin-bottom:10px;">← Bebida anterior</button>' : "") +
       qHtml +
-      '<button class="btn btn-primary btn-block" data-action="eval-submit"' + (allAnswered ? "" : " disabled") + ">Finalizar evaluación</button>" +
-      (ynQuestions.length === 0
-        ? '<div class="field-hint" style="text-align:center;margin-top:8px;">No hay preguntas Sí / No: esta evaluación no tendrá puntaje numérico.</div>'
-        : "");
+      '<button class="btn btn-primary btn-block" data-action="eval-next"' + (allAnswered ? "" : " disabled") + ">" + (isLast ? "Finalizar evaluación" : "Siguiente bebida →") + "</button>" +
+      (ynQs.length === 0 ? '<div class="field-hint" style="text-align:center;margin-top:8px;">Esta categoría no tiene preguntas Sí / No.</div>' : "");
   }
 
   /* ---------- historial ---------- */
 
   function renderHistorial() {
     var selEmp = document.getElementById("hist-filter-emp");
-    var selDrink = document.getElementById("hist-filter-drink");
     selEmp.innerHTML = '<option value="">Todos los empleados</option>' +
       DB.employees.map(function (e) {
         return '<option value="' + e.id + '"' + (histFilters.empId === e.id ? " selected" : "") + ">" + esc(e.name) + "</option>";
       }).join("");
-    selDrink.innerHTML = '<option value="">Todas las bebidas</option>' +
-      DB.drinks.map(function (d) {
-        return '<option value="' + d.id + '"' + (histFilters.drinkId === d.id ? " selected" : "") + ">" + esc(d.name) + "</option>";
-      }).join("");
 
     var list = DB.evaluations.filter(function (e) {
-      return (!histFilters.empId || e.employeeId === histFilters.empId) &&
-        (!histFilters.drinkId || e.drinkId === histFilters.drinkId);
+      return !histFilters.empId || e.employeeId === histFilters.empId;
     }).slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
 
     var c = document.getElementById("historial-content");
@@ -690,28 +873,28 @@
       c.innerHTML = emptyStateHtml("history", "No hay evaluaciones que coincidan con el filtro.", null);
       return;
     }
-    c.innerHTML = list.map(function (ev) {
-      var scoreDisplay = ev.score == null ? "N/A" : ev.score + "%";
-      return '<div class="list-row" data-action="hist-open:' + ev.id + '" style="cursor:pointer;">' +
-        avatarHtml({ name: ev.employeeName, photo: ev.employeePhoto }, 40) +
+    c.innerHTML = list.map(function (session) {
+      var scoreDisplay = session.score == null ? "N/A" : session.score + "%";
+      return '<div class="list-row" role="button" tabindex="0" data-action="hist-open:' + session.id + '" style="cursor:pointer;" aria-label="Ver detalle de evaluación de ' + esc(session.employeeName) + '">' +
+        avatarHtml({ name: session.employeeName, photo: session.employeePhoto }, 40) +
         '<div class="info">' +
-        '<div class="name">' + esc(ev.employeeName) + " · " + esc(ev.drinkName) + "</div>" +
-        '<div class="meta">' + formatDateTime(ev.createdAt) + " · Evaluó: " + esc(ev.evaluatorName || "—") + "</div>" +
+        '<div class="name">' + esc(session.employeeName) + " · " + session.rounds.length + " bebidas</div>" +
+        '<div class="meta">' + formatDateTime(session.createdAt) + " · Evaluó: " + esc(session.evaluatorName || "—") + "</div>" +
         "</div>" +
         '<div class="row-actions">' +
-        '<div class="val ' + scoreColorClass(ev.score) + '" style="font-weight:800;margin-right:2px;">' + scoreDisplay + "</div>" +
-        '<button class="icon-btn danger" data-action="hist-delete:' + ev.id + '" title="Eliminar" aria-label="Eliminar evaluación"><span class="msi" aria-hidden="true">delete</span></button>' +
+        '<div class="val ' + scoreColorClass(session.score) + '" style="font-weight:800;margin-right:2px;">' + scoreDisplay + "</div>" +
+        '<button class="icon-btn danger" data-action="hist-delete:' + session.id + '" title="Eliminar" aria-label="Eliminar evaluación"><span class="msi" aria-hidden="true">delete</span></button>' +
         "</div>" +
         "</div>";
     }).join("");
   }
 
   function openHistDetail(id) {
-    var ev = DB.evaluations.find(function (e) { return e.id === id; });
-    if (!ev) return;
+    var session = DB.evaluations.find(function (e) { return e.id === id; });
+    if (!session) return;
     openModal(
       '<div class="modal-header"><h2>Detalle de evaluación</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
-      evalResultHtml(ev, false)
+      sessionResultHtml(session, false)
     );
   }
 
@@ -735,15 +918,18 @@
   }
 
   function exportCSV() {
-    var rows = [["Fecha", "Empleado", "Puesto", "Bebida", "Evaluó", "Puntaje (%)", "Detalle de respuestas"]];
-    DB.evaluations.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).forEach(function (ev) {
-      var detail = ev.answers.map(function (a) {
-        return a.text + ": " + (a.type === "yn" ? (a.value ? "Sí" : "No") : (a.value || ""));
-      }).join(" | ");
-      rows.push([
-        formatDateTime(ev.createdAt), ev.employeeName, ev.employeeRole || "", ev.drinkName,
-        ev.evaluatorName || "", ev.score == null ? "" : String(ev.score), detail
-      ]);
+    var rows = [["Fecha", "Empleado", "Puesto", "Evaluó", "Bebida", "Categoría", "Puntaje bebida (%)", "Puntaje sesión (%)", "Detalle"]];
+    DB.evaluations.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).forEach(function (session) {
+      session.rounds.forEach(function (round) {
+        var detail = round.answers.map(function (a) {
+          return a.text + ": " + (a.type === "yn" ? (a.value ? "Sí" : "No") : (a.value || ""));
+        }).join(" | ");
+        rows.push([
+          formatDateTime(session.createdAt), session.employeeName, session.employeeRole || "", session.evaluatorName || "",
+          round.drinkName, categoryMeta(round.category).label,
+          round.score == null ? "" : String(round.score), session.score == null ? "" : String(session.score), detail
+        ]);
+      });
     });
     var csv = "﻿" + rows.map(function (r) { return r.map(csvEscape).join(","); }).join("\r\n");
     downloadBlob(csv, "historial-qc-bebidas-" + todayStr() + ".csv", "text/csv;charset=utf-8;");
@@ -758,12 +944,18 @@
         var parsed = JSON.parse(reader.result);
         if (!parsed || typeof parsed !== "object") throw new Error("formato inválido");
         if (!confirm("Esto reemplazará TODOS los datos actuales con el contenido del archivo importado. ¿Continuar?")) return;
+        var qs = parsed.questionSets || {};
         DB = {
           employees: Array.isArray(parsed.employees) ? parsed.employees : [],
-          drinks: Array.isArray(parsed.drinks) ? parsed.drinks : [],
-          questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+          drinks: Array.isArray(parsed.drinks) && parsed.drinks.length ? parsed.drinks : buildRepertoire(),
+          questionSets: {
+            caliente: Array.isArray(qs.caliente) ? qs.caliente : [],
+            helada: Array.isArray(qs.helada) ? qs.helada : [],
+            frappuccino: Array.isArray(qs.frappuccino) ? qs.frappuccino : []
+          },
           evaluations: Array.isArray(parsed.evaluations) ? parsed.evaluations : []
         };
+        seedIfNeeded();
         saveDB(); renderAll(); toast("Datos importados correctamente");
       } catch (err) {
         toast("Archivo inválido, no se pudo importar");
@@ -772,7 +964,7 @@
     reader.readAsText(file);
   }
 
-  function buildDemoDB() {
+  function buildDemoPeopleAndEvaluations() {
     var now = Date.now();
     var day = 24 * 60 * 60 * 1000;
     var employees = [
@@ -781,58 +973,56 @@
       { id: uid("emp"), name: "Sofía Guzmán", role: "Barista Trainer", createdAt: now },
       { id: uid("emp"), name: "Carlos Mendoza", role: "Shift Supervisor", createdAt: now }
     ];
-    var drinks = [
-      { id: uid("drk"), name: "Frapuccino de Caramelo", createdAt: now },
-      { id: uid("drk"), name: "Latte Vainilla", createdAt: now },
-      { id: uid("drk"), name: "Cold Brew", createdAt: now }
-    ];
-    var questions = [
-      { id: uid("q"), text: "¿Se respetó la receta estándar?", type: "yn", createdAt: now },
-      { id: uid("q"), text: "¿La temperatura fue la correcta?", type: "yn", createdAt: now },
-      { id: uid("q"), text: "¿La presentación/decorado fue adecuada?", type: "yn", createdAt: now },
-      { id: uid("q"), text: "¿El tiempo de preparación fue aceptable?", type: "yn", createdAt: now },
-      { id: uid("q"), text: "Observaciones generales", type: "open", createdAt: now },
-      { id: uid("q"), text: "¿Qué podría mejorar?", type: "open", createdAt: now }
-    ];
+    var evaluators = ["Carlos Mendoza", "Sofía Guzmán"];
 
-    function makeEval(emp, drink, daysAgo, yesCount, evaluatorName) {
-      var answers = questions.map(function (q, idx) {
-        if (q.type === "yn") {
-          return { questionId: q.id, text: q.text, type: "yn", value: idx < yesCount };
-        }
-        return { questionId: q.id, text: q.text, type: "open", value: idx === 4 ? "Buen desempeño general." : "" };
+    function makeSession(emp, daysAgo, evaluatorIdx, yesPattern) {
+      var picked = pickRandomDrinks(Math.min(ROUNDS_PER_SESSION, DB.drinks.length));
+      var rounds = picked.map(function (d, i) {
+        var qList = DB.questionSets[d.category] || [];
+        var yesCount = yesPattern[i % yesPattern.length];
+        var answers = qList.map(function (q, idx) {
+          if (q.type === "yn") return { questionId: q.id, text: q.text, type: "yn", value: idx < yesCount };
+          return { questionId: q.id, text: q.text, type: "open", value: idx === qList.length - 2 ? "Buen desempeño general." : "" };
+        });
+        return { drinkId: d.id, drinkName: d.name, category: d.category, subcategory: d.subcategory, answers: answers, score: computeScore(answers) };
       });
+      var scored = rounds.filter(function (r) { return r.score != null; });
+      var overall = scored.length ? Math.round(scored.reduce(function (s, r) { return s + r.score; }, 0) / scored.length) : null;
       return {
         id: uid("ev"), employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
-        drinkId: drink.id, drinkName: drink.name, evaluatorName: evaluatorName,
-        answers: answers, score: computeScore(answers),
-        createdAt: now - daysAgo * day
+        evaluatorName: evaluators[evaluatorIdx % evaluators.length],
+        rounds: rounds, score: overall, createdAt: now - daysAgo * day
       };
     }
 
     var evaluations = [
-      makeEval(employees[0], drinks[0], 10, 3, "Carlos Mendoza"),
-      makeEval(employees[0], drinks[1], 3, 4, "Carlos Mendoza"),
-      makeEval(employees[1], drinks[1], 9, 2, "Sofía Guzmán"),
-      makeEval(employees[1], drinks[2], 2, 3, "Carlos Mendoza"),
-      makeEval(employees[2], drinks[0], 8, 4, "Sofía Guzmán"),
-      makeEval(employees[2], drinks[2], 1, 4, "Carlos Mendoza"),
-      makeEval(employees[3], drinks[1], 7, 2, "Sofía Guzmán"),
-      makeEval(employees[3], drinks[0], 1, 3, "Sofía Guzmán")
+      makeSession(employees[0], 10, 0, [3, 2]),
+      makeSession(employees[0], 3, 0, [4, 4]),
+      makeSession(employees[1], 9, 1, [2, 3]),
+      makeSession(employees[1], 2, 0, [3, 3]),
+      makeSession(employees[2], 8, 1, [4, 4]),
+      makeSession(employees[2], 1, 0, [4, 3]),
+      makeSession(employees[3], 7, 1, [2, 2]),
+      makeSession(employees[3], 1, 1, [3, 3])
     ];
 
-    return { employees: employees, drinks: drinks, questions: questions, evaluations: evaluations };
+    return { employees: employees, evaluations: evaluations };
   }
 
   function loadDemoData() {
-    if (!confirm("Esto reemplazará todos los datos actuales con datos de ejemplo. ¿Continuar?")) return;
-    DB = buildDemoDB();
+    if (!confirm("Esto reemplazará empleados y evaluaciones con datos de ejemplo. El repertorio de bebidas y las preguntas no se modifican. ¿Continuar?")) return;
+    var demo = buildDemoPeopleAndEvaluations();
+    DB.employees = demo.employees;
+    DB.evaluations = demo.evaluations;
     saveDB(); renderAll(); toast("Datos de ejemplo cargados");
   }
 
   function clearAllData() {
-    if (!confirm("¿Borrar TODOS los datos (empleados, bebidas, preguntas y evaluaciones)? Esta acción no se puede deshacer.")) return;
-    DB = emptyDB();
+    if (!confirm("¿Borrar empleados y evaluaciones, y restablecer las preguntas a los valores predeterminados? El recetario de bebidas no se modifica. Esta acción no se puede deshacer.")) return;
+    DB.employees = [];
+    DB.evaluations = [];
+    DB.questionSets = { caliente: [], helada: [], frappuccino: [] };
+    seedIfNeeded();
     saveDB(); renderAll(); toast("Datos borrados");
   }
 
@@ -842,7 +1032,7 @@
     renderRanking();
     renderEvaluar();
     renderEmpleados();
-    renderBebidas();
+    renderRecetario();
     renderPreguntas();
     renderHistorial();
   }
@@ -876,18 +1066,19 @@
         if (removeBtn) removeBtn.style.display = "none";
         break;
       }
-      case "add-bebida": openBebidaForm(); break;
-      case "edit-bebida": openBebidaForm(a1); break;
-      case "delete-bebida": deleteBebida(a1); break;
+      case "recetario-cat": recetarioState.category = a1; renderRecetario(); break;
+      case "recipe-open": openRecipeDetail(a1); break;
+      case "preguntas-cat": preguntasState.category = a1; renderPreguntas(); break;
       case "add-pregunta": openPreguntaForm(); break;
       case "edit-pregunta": openPreguntaForm(a1); break;
       case "delete-pregunta": deletePregunta(a1); break;
       case "eval-pick-employee": evalPickEmployee(a1); break;
-      case "eval-pick-drink": evalPickDrink(a1); break;
+      case "eval-start": evalStart(); break;
       case "eval-back": evalBack(); break;
       case "eval-answer-yn": evalAnswerYN(a1, a2); break;
-      case "eval-submit": evalSubmit(); break;
+      case "eval-next": evalNext(); break;
       case "eval-restart": evalRestart(); break;
+      case "round-open": openRoundDetail(a1, parseInt(a2, 10)); break;
       case "hist-open": openHistDetail(a1); break;
       case "hist-delete": deleteHistEval(a1); break;
       case "export-json": exportJSON(); break;
@@ -900,13 +1091,11 @@
 
   function handleGlobalSubmit(e) {
     if (e.target.id === "form-empleado") { e.preventDefault(); saveEmpleadoFromForm(e.target); }
-    else if (e.target.id === "form-bebida") { e.preventDefault(); saveBebidaFromForm(e.target); }
     else if (e.target.id === "form-pregunta") { e.preventDefault(); savePreguntaFromForm(e.target); }
   }
 
   function handleGlobalChange(e) {
     if (e.target.id === "hist-filter-emp") { histFilters.empId = e.target.value; renderHistorial(); }
-    else if (e.target.id === "hist-filter-drink") { histFilters.drinkId = e.target.value; renderHistorial(); }
     else if (e.target.id === "import-file-input") { handleImportFile(e.target.files[0]); e.target.value = ""; }
     else if (e.target.id === "photo-input") {
       var file = e.target.files[0];
@@ -929,6 +1118,9 @@
       evalOpenInput(e.target.dataset.qid, e.target.value);
     } else if (e.target.dataset.role === "evaluator-input") {
       evalSetEvaluator(e.target.value);
+    } else if (e.target.id === "recetario-search") {
+      recetarioState.search = e.target.value;
+      renderRecetario();
     }
   }
 
@@ -936,6 +1128,7 @@
 
   function init() {
     DB = loadDB();
+    seedIfNeeded();
     try { evalState.evaluatorName = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
 
     var greetingText = "Hola " + GREETING_NAME;
@@ -952,6 +1145,11 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && document.getElementById("modal-overlay").classList.contains("active")) {
         closeModal();
+        return;
+      }
+      if ((e.key === "Enter" || e.key === " ") && e.target && e.target.matches && e.target.matches('[role="button"][data-action]')) {
+        e.preventDefault();
+        e.target.click();
       }
     });
 

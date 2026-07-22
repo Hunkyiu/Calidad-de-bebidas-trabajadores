@@ -30,6 +30,16 @@
   --danger-bg: rgba(209, 106, 90, .1);
   --danger-border: rgba(209, 106, 90, .3);
 
+  --hot: #e0824a;
+  --hot-bg: rgba(224, 130, 74, .13);
+  --hot-border: rgba(224, 130, 74, .35);
+  --iced: #5fb0d9;
+  --iced-bg: rgba(95, 176, 217, .13);
+  --iced-border: rgba(95, 176, 217, .35);
+  --frapp: #b389d1;
+  --frapp-bg: rgba(179, 137, 209, .13);
+  --frapp-border: rgba(179, 137, 209, .35);
+
   --radius: 14px;
   --shadow: 0 4px 16px rgba(0, 0, 0, .35);
   --font-serif: 'DM Serif Display', Georgia, serif;
@@ -684,3 +694,152 @@ main {
 }
 .app-footer-credit .label { font-size: 10px; letter-spacing: 2.5px; color: var(--text-faint); text-transform: uppercase; margin-bottom: 4px; }
 .app-footer-credit .name { font-family: var(--font-serif); font-size: 14px; color: var(--gold); }
+
+/* ---------- Category badges ---------- */
+
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cat-badge .msi { font-size: 13px; }
+.cat-badge.cat-caliente { color: var(--hot); background: var(--hot-bg); border-color: var(--hot-border); }
+.cat-badge.cat-helada { color: var(--iced); background: var(--iced-bg); border-color: var(--iced-border); }
+.cat-badge.cat-frappuccino { color: var(--frapp); background: var(--frapp-bg); border-color: var(--frapp-border); }
+
+/* ---------- Segmented control (category tabs) ---------- */
+
+.segmented {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+}
+.segmented::-webkit-scrollbar { display: none; }
+.segmented .seg {
+  flex: 0 0 auto;
+  padding: 9px 15px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+}
+.segmented .seg .msi { font-size: 16px; }
+.segmented .seg.active { color: var(--text-primary); border-color: var(--border-strong); background: var(--bg-subtle); }
+.segmented .seg.active.tone-caliente { color: var(--hot); background: var(--hot-bg); border-color: var(--hot-border); }
+.segmented .seg.active.tone-helada { color: var(--iced); background: var(--iced-bg); border-color: var(--iced-border); }
+.segmented .seg.active.tone-frappuccino { color: var(--frapp); background: var(--frapp-bg); border-color: var(--frapp-border); }
+.segmented .seg.active.tone-gold { color: var(--gold); background: var(--gold-soft-bg); border-color: var(--gold-soft-border); }
+
+/* ---------- Recetario ---------- */
+
+.search-field { position: relative; margin-bottom: 14px; }
+.search-field .msi {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); font-size: 19px; pointer-events: none;
+}
+.search-field input {
+  width: 100%; padding: 12px 14px 12px 42px;
+  border: 1.5px solid var(--border-strong); border-radius: 12px;
+  background: var(--bg-card); color: var(--text-primary);
+  font-size: 14px; font-family: var(--font-sans); min-height: 44px;
+}
+
+.recipe-group-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--text-faint); margin: 18px 0 8px; padding: 0 2px;
+}
+.recipe-group-label:first-child { margin-top: 0; }
+
+.recipe-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+}
+.recipe-row:active { transform: scale(.99); }
+.recipe-row .recipe-icon {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.recipe-row .recipe-icon .msi { font-size: 19px; }
+.recipe-row .recipe-icon.cat-caliente { color: var(--hot); background: var(--hot-bg); }
+.recipe-row .recipe-icon.cat-helada { color: var(--iced); background: var(--iced-bg); }
+.recipe-row .recipe-icon.cat-frappuccino { color: var(--frapp); background: var(--frapp-bg); }
+.recipe-row .info { flex: 1; min-width: 0; }
+.recipe-row .name { font-weight: 600; font-size: 14px; }
+.recipe-row .meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recipe-row .msi.chevron { color: var(--text-faint); font-size: 20px; flex-shrink: 0; }
+
+.recipe-detail-head { margin-bottom: 16px; }
+.recipe-detail-head .desc { font-size: 13.5px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px; }
+.recipe-steps { counter-reset: step; list-style: none; margin: 0; padding: 0; }
+.recipe-steps li {
+  counter-increment: step;
+  position: relative;
+  padding: 2px 0 16px 34px;
+  font-size: 13.5px; line-height: 1.55; color: var(--text-secondary);
+  border-left: 1.5px solid var(--border-strong);
+  margin-left: 13px;
+}
+.recipe-steps li:last-child { border-color: transparent; padding-bottom: 0; }
+.recipe-steps li::before {
+  content: counter(step);
+  position: absolute; left: -13px; top: -2px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--gold-grad); color: var(--gold-on);
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.recipe-steps li b, .recipe-steps li strong { color: var(--text-primary); }
+
+/* ---------- Round stepper (5-drink evaluation) ---------- */
+
+.round-dots { display: flex; gap: 6px; margin-bottom: 14px; }
+.round-dots .dot {
+  flex: 1; height: 5px; border-radius: 3px; background: var(--border-strong);
+}
+.round-dots .dot.done { background: var(--gold); }
+.round-dots .dot.current { background: var(--gold-grad); }
+
+.round-head {
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(165deg, #211a12, #1a1410);
+  border: 1px solid var(--border); border-radius: 16px;
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.round-head .round-num {
+  font-family: var(--font-serif); font-size: 22px; color: var(--gold);
+  flex-shrink: 0; width: 34px; text-align: center;
+}
+.round-head .round-info { flex: 1; min-width: 0; }
+.round-head .round-drink-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.round-head .round-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+.round-summary-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 11px 14px; margin-bottom: 8px; cursor: pointer;
+}
+.round-summary-row .idx {
+  width: 24px; text-align: center; font-weight: 700; color: var(--gold); font-size: 13px; flex-shrink: 0;
+}
+.round-summary-row .info { flex: 1; min-width: 0; }
+.round-summary-row .name { font-weight: 600; font-size: 13.5px; }
+.round-summary-row .score { font-family: var(--font-serif); font-size: 18px; flex-shrink: 0; }
+.round-summary-row .trend { font-size: 10.5px; font-weight: 600; margin-top: 1px; text-align: right; }
