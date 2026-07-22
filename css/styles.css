@@ -461,6 +461,7 @@ main {
 .qa-answer.yes { color: var(--success); }
 .qa-answer.no { color: var(--danger); }
 .qa-answer.open { color: var(--text-primary); font-weight: 400; }
+.qa-answer.na { color: var(--text-muted); font-weight: 600; }
 
 /* Bottom nav */
 .bottom-nav {

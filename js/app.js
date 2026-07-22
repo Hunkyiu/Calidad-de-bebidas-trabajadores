@@ -7,12 +7,14 @@
   var PHOTO_SIZE = 200;
   var GREETING_NAME = "Partner";
   var ROUNDS_PER_SESSION = 5;
+  var QUESTIONS_VERSION = 2;
 
   var CATEGORIES = [
     { id: "caliente", label: "Caliente", icon: "local_fire_department" },
     { id: "helada", label: "Helada", icon: "ac_unit" },
     { id: "frappuccino", label: "Frappuccino", icon: "blender" }
   ];
+  var QUESTION_GROUPS = [{ id: "general", label: "General", icon: "checklist" }].concat(CATEGORIES);
   var SUBCAT_LABELS = {
     con_cafe: "Con café", sin_cafe: "Sin café",
     base_coffee: "Base coffee", base_cream: "Base cream", frozen: "Frozen",
@@ -20,16 +22,16 @@
   };
 
   var DB = null;
-  var evalState = { phase: "setup", employeeId: null, evaluatorName: "", rounds: [], roundIndex: 0, resultId: null };
+  var evalState = { phase: "setup", employeeId: null, evaluatorName: "", rounds: [], roundIndex: 0, sessionFeedback: "", resultId: null };
   var histFilters = { empId: "" };
   var recetarioState = { category: "all", search: "" };
-  var preguntasState = { category: "caliente" };
+  var preguntasState = { category: "general" };
   var toastTimer = null;
 
   /* ---------- storage ---------- */
 
   function emptyDB() {
-    return { employees: [], drinks: [], questionSets: { caliente: [], helada: [], frappuccino: [] }, evaluations: [] };
+    return { employees: [], drinks: [], questionSets: { general: [], caliente: [], helada: [], frappuccino: [] }, questionsVersion: 0, evaluations: [] };
   }
 
   function loadDB() {
@@ -42,10 +44,12 @@
         employees: Array.isArray(parsed.employees) ? parsed.employees : [],
         drinks: Array.isArray(parsed.drinks) ? parsed.drinks : [],
         questionSets: {
+          general: Array.isArray(qs.general) ? qs.general : [],
           caliente: Array.isArray(qs.caliente) ? qs.caliente : [],
           helada: Array.isArray(qs.helada) ? qs.helada : [],
           frappuccino: Array.isArray(qs.frappuccino) ? qs.frappuccino : []
         },
+        questionsVersion: parsed.questionsVersion || 0,
         evaluations: Array.isArray(parsed.evaluations) ? parsed.evaluations : []
       };
     } catch (err) {
@@ -58,37 +62,40 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
   }
 
-  function defaultQuestions(category) {
-    var byCat = {
+  function defaultQuestions(group) {
+    var byGroup = {
+      general: [
+        ["¿Sabe describir la bebida?", "yn"],
+        ["¿El vaso está limpio?", "yn"],
+        ["¿Escribió en el vaso algún mensaje?", "yn"],
+        ["¿Sabe sus nomenclaturas?", "yn"],
+        ["¿Hace la bebida conforme al recetario de la bebida?", "yn"],
+        ["¿Sabe la receta de la crema batida?", "yn"],
+        ["En caso de que sea una bebida que lleve un espiral o crema batida, ¿la crema batida o el espiral choca con la tapa?", "yn"],
+        ["En caso de llevar jarabe, ¿cuántos pumps de jarabe se le pone?", "open"],
+        ["En caso de llevar topping, ¿cuánto le debemos de poner?", "open"]
+      ],
       caliente: [
-        ["¿Se respetó la receta estándar (shots, jarabe, medidas)?", "yn"],
-        ["¿La leche se vaporizó a la temperatura y textura correctas?", "yn"],
-        ["¿La bebida se sirvió a la temperatura adecuada?", "yn"],
-        ["¿El acabado (crema batida, espirales, toppings) fue el correcto?", "yn"],
-        ["Observaciones generales", "open"],
-        ["¿Qué podría mejorar?", "open"]
+        ["¿La temperatura de la bebida es la indicada?", "yn"],
+        ["¿Cuál es el rango de temperatura de nuestras bebidas?", "open"],
+        ["¿Cuál es la diferencia entre un shot largo y un shot de ristretto?", "open"],
+        ["En caso de ser una bebida con espuma o cremosa, ¿cumple con el criterio?", "yn"]
       ],
       helada: [
-        ["¿Se respetó la receta estándar (shots, jarabe, hielo)?", "yn"],
-        ["¿Se usó la cantidad de hielo correcta?", "yn"],
-        ["¿El shakeo o mezclado se hizo correctamente?", "yn"],
-        ["¿La presentación y el nivel de llenado fueron correctos?", "yn"],
-        ["Observaciones generales", "open"],
-        ["¿Qué podría mejorar?", "open"]
+        ["¿La cantidad de bebida es la indicada comparado con los hielos?", "yn"]
       ],
       frappuccino: [
-        ["¿Se respetó la receta estándar (base, jarabe, roast)?", "yn"],
-        ["¿La consistencia del licuado fue la correcta?", "yn"],
-        ["¿El topping y acabado final fueron los correctos?", "yn"],
-        ["¿Se usó el botón de licuado y medida de hielo correctos?", "yn"],
-        ["Observaciones generales", "open"],
-        ["¿Qué podría mejorar?", "open"]
+        ["¿Cuántos pumps de frapp roast lleva la bebida?", "open"]
       ]
     };
     var now = Date.now();
-    return (byCat[category] || []).map(function (pair) {
+    return (byGroup[group] || []).map(function (pair) {
       return { id: uid("q"), text: pair[0], type: pair[1], createdAt: now };
     });
+  }
+
+  function roundQuestionList(category) {
+    return (DB.questionSets.general || []).concat(DB.questionSets[category] || []);
   }
 
   function buildRepertoire() {
@@ -105,9 +112,11 @@
   function seedIfNeeded() {
     var changed = false;
     if (!DB.drinks.length) { DB.drinks = buildRepertoire(); changed = true; }
-    CATEGORIES.forEach(function (c) {
-      if (!DB.questionSets[c.id].length) { DB.questionSets[c.id] = defaultQuestions(c.id); changed = true; }
-    });
+    if (DB.questionsVersion !== QUESTIONS_VERSION) {
+      QUESTION_GROUPS.forEach(function (g) { DB.questionSets[g.id] = defaultQuestions(g.id); });
+      DB.questionsVersion = QUESTIONS_VERSION;
+      changed = true;
+    }
     if (changed) saveDB();
   }
 
@@ -171,6 +180,11 @@
   function categoryMeta(catId) {
     for (var i = 0; i < CATEGORIES.length; i++) { if (CATEGORIES[i].id === catId) return CATEGORIES[i]; }
     return { id: catId, label: catId, icon: "local_cafe" };
+  }
+
+  function groupMeta(groupId) {
+    for (var i = 0; i < QUESTION_GROUPS.length; i++) { if (QUESTION_GROUPS[i].id === groupId) return QUESTION_GROUPS[i]; }
+    return { id: groupId, label: groupId, icon: "checklist" };
   }
 
   function catBadgeHtml(catId) {
@@ -256,7 +270,7 @@
   }
 
   function computeScore(answers) {
-    var yn = answers.filter(function (a) { return a.type === "yn"; });
+    var yn = answers.filter(function (a) { return a.type === "yn" && a.value !== "na"; });
     if (!yn.length) return null;
     var yes = yn.filter(function (a) { return a.value === true; }).length;
     return Math.round((yes / yn.length) * 100);
@@ -523,10 +537,11 @@
   function renderPreguntasTabs() {
     var el = document.getElementById("preguntas-tabs");
     if (!el) return;
-    el.innerHTML = CATEGORIES.map(function (c) {
-      var active = preguntasState.category === c.id;
-      return '<button type="button" class="seg' + (active ? " active tone-" + c.id : "") + '" data-action="preguntas-cat:' + c.id + '">' +
-        '<span class="msi" aria-hidden="true">' + c.icon + "</span>" + esc(c.label) + "</button>";
+    el.innerHTML = QUESTION_GROUPS.map(function (g) {
+      var active = preguntasState.category === g.id;
+      var tone = g.id === "general" ? "gold" : g.id;
+      return '<button type="button" class="seg' + (active ? " active tone-" + tone : "") + '" data-action="preguntas-cat:' + g.id + '">' +
+        '<span class="msi" aria-hidden="true">' + g.icon + "</span>" + esc(g.label) + "</button>";
     }).join("");
   }
 
@@ -536,11 +551,14 @@
     document.getElementById("q-counter").textContent = list.length + "/" + LIMITS.questions;
     document.getElementById("btn-add-pregunta").disabled = list.length >= LIMITS.questions;
     var c = document.getElementById("preguntas-content");
+    var hint = preguntasState.category === "general"
+      ? '<div class="warn-box">Estas preguntas se muestran para <b>todas</b> las bebidas, además de las propias de su categoría.</div>'
+      : "";
     if (!list.length) {
-      c.innerHTML = emptyStateHtml("checklist", 'Aún no hay preguntas en esta categoría. Toca "+" para agregar la primera.', null);
+      c.innerHTML = hint + emptyStateHtml("checklist", 'Aún no hay preguntas en esta categoría. Toca "+" para agregar la primera.', null);
       return;
     }
-    c.innerHTML = list.map(function (q) {
+    c.innerHTML = hint + list.map(function (q) {
       return '<div class="list-row">' +
         '<div class="info">' +
         '<div class="name">' + esc(q.text) + "</div>" +
@@ -555,8 +573,8 @@
   }
 
   function findQuestion(id) {
-    for (var i = 0; i < CATEGORIES.length; i++) {
-      var cat = CATEGORIES[i].id;
+    for (var i = 0; i < QUESTION_GROUPS.length; i++) {
+      var cat = QUESTION_GROUPS[i].id;
       var q = DB.questionSets[cat].find(function (x) { return x.id === id; });
       if (q) return { q: q, cat: cat };
     }
@@ -569,7 +587,7 @@
     var type = q ? q.type : "yn";
     var cat = found ? found.cat : preguntasState.category;
     openModal(
-      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + " pregunta · " + esc(categoryMeta(cat).label) + '</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
+      '<div class="modal-header"><h2>' + (q ? "Editar" : "Agregar") + " pregunta · " + esc(groupMeta(cat).label) + '</h2><button type="button" class="modal-close" data-action="close-modal" title="Cerrar" aria-label="Cerrar"><span class="msi" aria-hidden="true">close</span></button></div>' +
       '<form id="form-pregunta" data-id="' + (q ? q.id : "") + '" data-cat="' + cat + '">' +
       '<div class="field"><label>Pregunta</label><textarea name="text" required maxlength="160" rows="2" placeholder="Ej. ¿La bebida se sirvió a la temperatura correcta?">' + esc(q ? q.text : "") + "</textarea></div>" +
       '<div class="field"><label>Tipo de respuesta</label>' +
@@ -622,7 +640,7 @@
   function evalRestart() {
     var lastEvaluator = "";
     try { lastEvaluator = localStorage.getItem(LAST_EVALUATOR_KEY) || ""; } catch (err) {}
-    evalState = { phase: "setup", employeeId: null, evaluatorName: lastEvaluator, rounds: [], roundIndex: 0, resultId: null };
+    evalState = { phase: "setup", employeeId: null, evaluatorName: lastEvaluator, rounds: [], roundIndex: 0, sessionFeedback: "", resultId: null };
     renderEvaluar();
   }
 
@@ -658,7 +676,8 @@
   }
 
   function evalAnswerYN(qid, val) {
-    evalState.rounds[evalState.roundIndex].answers[qid] = { type: "yn", value: val === "yes" };
+    var value = val === "yes" ? true : val === "no" ? false : "na";
+    evalState.rounds[evalState.roundIndex].answers[qid] = { type: "yn", value: value };
     renderEvaluar();
   }
 
@@ -668,7 +687,7 @@
 
   function evalNext() {
     var round = evalState.rounds[evalState.roundIndex];
-    var qList = DB.questionSets[round.category] || [];
+    var qList = roundQuestionList(round.category);
     var ynQs = qList.filter(function (q) { return q.type === "yn"; });
     var allAnswered = ynQs.every(function (q) { return round.answers[q.id] && round.answers[q.id].type === "yn"; });
     if (!allAnswered) { toast("Responde todas las preguntas Sí / No"); return; }
@@ -676,15 +695,25 @@
       evalState.roundIndex++;
       renderEvaluar();
     } else {
-      evalSubmitSession();
+      evalState.phase = "feedback";
+      renderEvaluar();
     }
+  }
+
+  function evalFeedbackBack() {
+    evalState.phase = "rounds";
+    renderEvaluar();
+  }
+
+  function evalSetFeedback(text) {
+    evalState.sessionFeedback = text;
   }
 
   function evalSubmitSession() {
     var emp = DB.employees.find(function (e) { return e.id === evalState.employeeId; });
     if (!emp) { toast("Selecciona un empleado válido"); evalState.phase = "setup"; renderEvaluar(); return; }
     var roundsOut = evalState.rounds.map(function (round) {
-      var qList = DB.questionSets[round.category] || [];
+      var qList = roundQuestionList(round.category);
       var answers = qList.map(function (q) {
         var a = round.answers[q.id];
         if (q.type === "yn") return { questionId: q.id, text: q.text, type: "yn", value: a ? a.value : null };
@@ -702,6 +731,7 @@
       employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
       evaluatorName: (evalState.evaluatorName || "").trim(),
       rounds: roundsOut, score: overall,
+      feedback: (evalState.sessionFeedback || "").trim(),
       createdAt: Date.now()
     };
     DB.evaluations.push(session);
@@ -712,11 +742,20 @@
     toast("Evaluación guardada");
   }
 
+  function ynAnswerLabel(value) {
+    if (value === "na") return { cls: "na", text: "No aplica ○" };
+    return value ? { cls: "yes", text: "Sí ✓" } : { cls: "no", text: "No ✗" };
+  }
+
   function roundQaHtml(round) {
     return round.answers.map(function (a) {
-      var answerHtml = a.type === "yn"
-        ? '<div class="qa-answer ' + (a.value ? "yes" : "no") + '">' + (a.value ? "Sí ✓" : "No ✗") + "</div>"
-        : '<div class="qa-answer open">' + (a.value ? esc(a.value) : '<span class="field-hint">Sin comentario</span>') + "</div>";
+      var answerHtml;
+      if (a.type === "yn") {
+        var lbl = ynAnswerLabel(a.value);
+        answerHtml = '<div class="qa-answer ' + lbl.cls + '">' + lbl.text + "</div>";
+      } else {
+        answerHtml = '<div class="qa-answer open">' + (a.value ? esc(a.value) : '<span class="field-hint">Sin comentario</span>') + "</div>";
+      }
       return '<div class="qa-item"><div class="q-text">' + esc(a.text) + "</div>" + answerHtml + "</div>";
     }).join("");
   }
@@ -734,6 +773,9 @@
         ? '<div class="compare ' + cmp.cls + '">' + cmp.text + "</div>"
         : '<div class="compare trend-flat">Primera evaluación registrada para este empleado</div>') +
       "</div>" +
+      (session.feedback
+        ? '<div class="subsection-title">Feedback / áreas de oportunidad</div><div class="qa-item"><div class="qa-answer open">' + esc(session.feedback) + "</div></div>"
+        : "") +
       '<div class="subsection-title">Bebidas evaluadas</div>' +
       session.rounds.map(function (round, idx) {
         var prevRound = findPreviousRound(session.employeeId, round.drinkId, session.createdAt, session.id);
@@ -792,6 +834,20 @@
       return;
     }
 
+    if (evalState.phase === "feedback") {
+      c.innerHTML =
+        '<div class="round-dots">' + evalState.rounds.map(function () { return '<div class="dot done"></div>'; }).join("") + "</div>" +
+        '<div class="round-head"><div class="round-info">' +
+        '<div class="round-drink-name">Feedback general</div>' +
+        '<div class="round-desc">Antes de guardar, anota áreas de oportunidad para esta evaluación (opcional).</div>' +
+        "</div></div>" +
+        '<button class="btn btn-secondary btn-sm" data-action="eval-feedback-back" style="margin-bottom:10px;">← Última bebida</button>' +
+        '<div class="field"><label>Feedback / áreas de oportunidad</label>' +
+        '<textarea data-role="session-feedback" rows="4" placeholder="Ej. Reforzar tiempos de preparación en bebidas heladas...">' + esc(evalState.sessionFeedback || "") + "</textarea></div>" +
+        '<button class="btn btn-primary btn-block" data-action="eval-submit">Finalizar evaluación</button>';
+      return;
+    }
+
     if (evalState.phase === "setup") {
       c.innerHTML =
         '<div class="field">' +
@@ -823,17 +879,19 @@
       (round.description ? '<div class="round-desc" style="margin-top:6px;">' + esc(round.description) + "</div>" : "") +
       "</div></div>";
 
-    var qList = DB.questionSets[round.category] || [];
+    var qList = roundQuestionList(round.category);
     var qHtml = qList.map(function (q) {
       var a = round.answers[q.id];
       if (q.type === "yn") {
         var selYes = a && a.type === "yn" && a.value === true;
         var selNo = a && a.type === "yn" && a.value === false;
+        var selNa = a && a.type === "yn" && a.value === "na";
         return '<div class="qa-item">' +
           '<div class="q-text">' + esc(q.text) + "</div>" +
           '<div class="btn-row">' +
           '<button type="button" class="btn ' + (selYes ? "btn-primary" : "btn-secondary") + ' btn-sm" data-action="eval-answer-yn:' + q.id + ':yes">Sí</button>' +
           '<button type="button" class="btn ' + (selNo ? "btn-primary" : "btn-secondary") + ' btn-sm" data-action="eval-answer-yn:' + q.id + ':no">No</button>' +
+          '<button type="button" class="btn ' + (selNa ? "btn-primary" : "btn-secondary") + ' btn-sm" data-action="eval-answer-yn:' + q.id + ':na">N/A</button>' +
           "</div>" +
           "</div>";
       }
@@ -851,7 +909,7 @@
     c.innerHTML = dots + head +
       (evalState.roundIndex > 0 ? '<button class="btn btn-secondary btn-sm" data-action="eval-back" style="margin-bottom:10px;">← Bebida anterior</button>' : "") +
       qHtml +
-      '<button class="btn btn-primary btn-block" data-action="eval-next"' + (allAnswered ? "" : " disabled") + ">" + (isLast ? "Finalizar evaluación" : "Siguiente bebida →") + "</button>" +
+      '<button class="btn btn-primary btn-block" data-action="eval-next"' + (allAnswered ? "" : " disabled") + ">" + (isLast ? "Continuar →" : "Siguiente bebida →") + "</button>" +
       (ynQs.length === 0 ? '<div class="field-hint" style="text-align:center;margin-top:8px;">Esta categoría no tiene preguntas Sí / No.</div>' : "");
   }
 
@@ -918,16 +976,18 @@
   }
 
   function exportCSV() {
-    var rows = [["Fecha", "Empleado", "Puesto", "Evaluó", "Bebida", "Categoría", "Puntaje bebida (%)", "Puntaje sesión (%)", "Detalle"]];
+    var rows = [["Fecha", "Empleado", "Puesto", "Evaluó", "Bebida", "Categoría", "Puntaje bebida (%)", "Puntaje sesión (%)", "Detalle", "Feedback de la sesión"]];
     DB.evaluations.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).forEach(function (session) {
       session.rounds.forEach(function (round) {
         var detail = round.answers.map(function (a) {
-          return a.text + ": " + (a.type === "yn" ? (a.value ? "Sí" : "No") : (a.value || ""));
+          var ans = a.type === "yn" ? (a.value === "na" ? "No aplica" : (a.value ? "Sí" : "No")) : (a.value || "");
+          return a.text + ": " + ans;
         }).join(" | ");
         rows.push([
           formatDateTime(session.createdAt), session.employeeName, session.employeeRole || "", session.evaluatorName || "",
           round.drinkName, categoryMeta(round.category).label,
-          round.score == null ? "" : String(round.score), session.score == null ? "" : String(session.score), detail
+          round.score == null ? "" : String(round.score), session.score == null ? "" : String(session.score), detail,
+          session.feedback || ""
         ]);
       });
     });
@@ -975,14 +1035,20 @@
     ];
     var evaluators = ["Carlos Mendoza", "Sofía Guzmán"];
 
-    function makeSession(emp, daysAgo, evaluatorIdx, yesPattern) {
+    function makeSession(emp, daysAgo, evaluatorIdx, yesRatio) {
       var picked = pickRandomDrinks(Math.min(ROUNDS_PER_SESSION, DB.drinks.length));
-      var rounds = picked.map(function (d, i) {
-        var qList = DB.questionSets[d.category] || [];
-        var yesCount = yesPattern[i % yesPattern.length];
-        var answers = qList.map(function (q, idx) {
-          if (q.type === "yn") return { questionId: q.id, text: q.text, type: "yn", value: idx < yesCount };
-          return { questionId: q.id, text: q.text, type: "open", value: idx === qList.length - 2 ? "Buen desempeño general." : "" };
+      var rounds = picked.map(function (d) {
+        var qList = roundQuestionList(d.category);
+        var ynQs = qList.filter(function (q) { return q.type === "yn"; });
+        var yesCount = Math.round(ynQs.length * yesRatio);
+        var ynSeen = 0;
+        var answers = qList.map(function (q) {
+          if (q.type === "yn") {
+            var isYes = ynSeen < yesCount;
+            ynSeen++;
+            return { questionId: q.id, text: q.text, type: "yn", value: isYes };
+          }
+          return { questionId: q.id, text: q.text, type: "open", value: "" };
         });
         return { drinkId: d.id, drinkName: d.name, category: d.category, subcategory: d.subcategory, answers: answers, score: computeScore(answers) };
       });
@@ -991,19 +1057,21 @@
       return {
         id: uid("ev"), employeeId: emp.id, employeeName: emp.name, employeeRole: emp.role, employeePhoto: emp.photo || null,
         evaluatorName: evaluators[evaluatorIdx % evaluators.length],
-        rounds: rounds, score: overall, createdAt: now - daysAgo * day
+        rounds: rounds, score: overall,
+        feedback: overall != null && overall < 80 ? "Reforzar apego al recetario y tiempos de preparación." : "",
+        createdAt: now - daysAgo * day
       };
     }
 
     var evaluations = [
-      makeSession(employees[0], 10, 0, [3, 2]),
-      makeSession(employees[0], 3, 0, [4, 4]),
-      makeSession(employees[1], 9, 1, [2, 3]),
-      makeSession(employees[1], 2, 0, [3, 3]),
-      makeSession(employees[2], 8, 1, [4, 4]),
-      makeSession(employees[2], 1, 0, [4, 3]),
-      makeSession(employees[3], 7, 1, [2, 2]),
-      makeSession(employees[3], 1, 1, [3, 3])
+      makeSession(employees[0], 10, 0, 0.7),
+      makeSession(employees[0], 3, 0, 1),
+      makeSession(employees[1], 9, 1, 0.55),
+      makeSession(employees[1], 2, 0, 0.7),
+      makeSession(employees[2], 8, 1, 1),
+      makeSession(employees[2], 1, 0, 0.9),
+      makeSession(employees[3], 7, 1, 0.5),
+      makeSession(employees[3], 1, 1, 0.7)
     ];
 
     return { employees: employees, evaluations: evaluations };
@@ -1077,6 +1145,8 @@
       case "eval-back": evalBack(); break;
       case "eval-answer-yn": evalAnswerYN(a1, a2); break;
       case "eval-next": evalNext(); break;
+      case "eval-feedback-back": evalFeedbackBack(); break;
+      case "eval-submit": evalSubmitSession(); break;
       case "eval-restart": evalRestart(); break;
       case "round-open": openRoundDetail(a1, parseInt(a2, 10)); break;
       case "hist-open": openHistDetail(a1); break;
@@ -1118,6 +1188,8 @@
       evalOpenInput(e.target.dataset.qid, e.target.value);
     } else if (e.target.dataset.role === "evaluator-input") {
       evalSetEvaluator(e.target.value);
+    } else if (e.target.dataset.role === "session-feedback") {
+      evalSetFeedback(e.target.value);
     } else if (e.target.id === "recetario-search") {
       recetarioState.search = e.target.value;
       renderRecetario();
